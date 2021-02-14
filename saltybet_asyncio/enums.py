@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-from enum import Enum
+from enum import IntEnum
 
 
-class BettingStatus(Enum):
+class BettingStatus(IntEnum):
     UNKNOWN = 0
     OPEN = 1
     LOCKED = 2
@@ -10,20 +10,20 @@ class BettingStatus(Enum):
     BLUE_WINS = 4
 
 
-class GameMode(Enum):
+class GameMode(IntEnum):
     UNKNOWN = 0
     MATCHMAKING = 1
     TOURNAMENT = 2
     EXHIBITION = 3
 
 
-class BettingSide(Enum):
+class BettingSide(IntEnum):
     UNKNOWN = 0
     RED = 1
     BLUE = 2
 
 
-class Tier(Enum):
+class Tier(IntEnum):
     UNKNOWN = 0
     S = 1
     A = 2
@@ -32,7 +32,7 @@ class Tier(Enum):
     X = 5
 
 
-class Upgrade(Enum):
+class Upgrade(IntEnum):
     UNKNOWN = 0
     UNLOCK = 1
     PROMOTE = 2
