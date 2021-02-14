@@ -8,9 +8,7 @@ authors = ["Nick Pancakes <nick@pncks.com>"]
 python = "^3.7"
 python-socketio = {extras = ["asyncio_client"], version = "^4.6.0"}
 aiorun = "^2020.6.1"
-aiosqlite = "^0.14.1"
 selectolax = "^0.2.10"
-html5print = "^0.1.2"
 pendulum = "^2.1.2"
 
 [tool.poetry.dev-dependencies]
