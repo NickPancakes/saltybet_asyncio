@@ -3,16 +3,15 @@
 import asyncio
 import logging
 from typing import Tuple
-from pathlib import Path
 
 import aiohttp
-import pendulum
 import aiorun
+import pendulum
 import socketio
-from aiohttp import web
+from aiohttp.web import HTTPUnauthorized
 from selectolax.parser import HTMLParser
 
-from .enums import BettingStatus, GameMode, BettingSide, Tier, Upgrade
+from .enums import BettingSide, BettingStatus, GameMode, Tier, Upgrade
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +79,7 @@ class SaltybetClient:
     async def illuminati(self) -> bool:
         try:
             await self._login()
-        except web.HTTPUnauthorized:
+        except HTTPUnauthorized:
             logger.error("Illuminati status cannot be checked without being logged in.")
             return False
         illuminati = False
@@ -100,7 +99,7 @@ class SaltybetClient:
     async def balance(self) -> int:
         try:
             await self._login()
-        except web.HTTPUnauthorized:
+        except HTTPUnauthorized:
             logger.error("Balance only available when logged in.")
             return
         balance = 0
@@ -118,7 +117,7 @@ class SaltybetClient:
     async def tournament_id(self) -> int:
         try:
             await self._login()
-        except web.HTTPUnauthorized:
+        except HTTPUnauthorized:
             logger.error("Tournament ID only available when logged in.")
             return None
         if not await self.illuminati:
@@ -142,7 +141,7 @@ class SaltybetClient:
     async def match_id(self) -> int:
         try:
             await self._login()
-        except web.HTTPUnauthorized:
+        except HTTPUnauthorized:
             logger.error("Match ID only available when logged in.")
             return None
         if not await self.illuminati:
@@ -211,18 +210,18 @@ class SaltybetClient:
             return
         if self.email is None or self.password is None:
             logger.error("Login Failed, credentials not provided.")
-            raise web.HTTPUnauthorized
+            raise HTTPUnauthorized
         data = {"email": self.email, "pword": self.password, "authenticate": "signin"}
         await self.session.post("https://www.saltybet.com/authenticate?signin=1", data=data)
         logged_in = await self.logged_in
         if not logged_in:
             logger.error("Login Failed, check your credentials.")
-            raise web.HTTPUnauthorized
+            raise HTTPUnauthorized
 
     async def place_bet(self, side: BettingSide, wager: int):
         try:
             await self._login()
-        except web.HTTPUnauthorized:
+        except HTTPUnauthorized:
             logger.error("Placing bets only available when logged in.")
             return
         if wager <= 0:
@@ -245,7 +244,7 @@ class SaltybetClient:
     async def get_match_stats(self) -> dict:
         try:
             await self._login()
-        except web.HTTPUnauthorized:
+        except HTTPUnauthorized:
             logger.error("Match stats only available when logged in.")
             return None
         if not await self.illuminati:
@@ -278,7 +277,7 @@ class SaltybetClient:
     async def scrape_tournament(self, tournament_id: int) -> dict:
         try:
             await self._login()
-        except web.HTTPUnauthorized:
+        except HTTPUnauthorized:
             logger.error("Tournament scraping only available when logged in.")
             return None
         if not await self.illuminati:
@@ -318,7 +317,7 @@ class SaltybetClient:
         async with self._semaphore:
             try:
                 await self._login()
-            except web.HTTPUnauthorized:
+            except HTTPUnauthorized:
                 logger.error("Match scraping only available when logged in.")
                 return None
             if not await self.illuminati:
@@ -360,7 +359,7 @@ class SaltybetClient:
         async with self._semaphore:
             try:
                 await self._login()
-            except web.HTTPUnauthorized:
+            except HTTPUnauthorized:
                 logger.error("Compendium scraping only available when logged in.")
                 return None
             if not await self.illuminati:
@@ -382,7 +381,7 @@ class SaltybetClient:
         async with self._semaphore:
             try:
                 await self._login()
-            except web.HTTPUnauthorized:
+            except HTTPUnauthorized:
                 logger.error("Compendium scraping only available when logged in.")
                 return None
             if not await self.illuminati:
