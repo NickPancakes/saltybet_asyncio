@@ -403,39 +403,42 @@ class SaltybetClient:
                         tree.css_first("table.detailedstats:nth-child(5) > tbody:nth-child(2) > tr:nth-child(2) > td:nth-child(2)").text()
                     ),
                     "sprite": f"https://www.saltybet.com/images/charanim/{fighter_id}.gif",
-                    "events": [],
+                    "upgrades": [],
                 }
-                for html_line in tree.css_first("#compendiumright > div:nth-child(7)").html.split("<br>"):
-                    line = HTMLParser(html_line).text()
-                    if ":" not in line:
-                        continue
-                    event = {
-                        "username": "",
-                        "event_type": Upgrade.UNKNOWN,
-                        "value": 0,
-                    }
-                    event["username"], action = line.split(":")
-                    if "unlock" in action or "promote" in action:
-                        if "unlock" in action:
-                            action = action.replace("unlock on", "").strip()
-                            event["event_type"] = Upgrade.UNLOCK
-                        else:
-                            action = action.replace("promote on", "").strip()
-                            event["event_type"] = Upgrade.PROMOTE
-                        event["value"] = int(pendulum.from_format(action, "MMMM DD, YYYY").format("X"))
-                    elif "exhib meter +" in action:
-                        event["event_type"] = Upgrade.METER_INCREASE
-                        event["value"] = int(action.replace("exhib meter +", "").strip())
-                    elif "exhib meter -" in action:
-                        event["event_type"] = Upgrade.METER_DECREASE
-                        event["value"] = int(action.replace("exhib meter -", "").strip())
-                    elif "life +" in action:
-                        event["event_type"] = Upgrade.LIFE_INCREASE
-                        event["value"] = int(action.replace("life +", "").strip())
-                    elif "life -" in action:
-                        event["event_type"] = Upgrade.LIFE_DECREASE
-                        event["value"] = int(action.replace("life -", "").strip())
-                    fighter["events"].append(event)
+
+                upgrades_block = tree.css_first("#compendiumright > div:nth-child(7)")
+                if upgrades_block is not None:
+                    for html_line in upgrades_block.html.split("<br>"):
+                        line = HTMLParser(html_line).text()
+                        if ":" not in line:
+                            continue
+                        upgrade = {
+                            "username": "",
+                            "type": Upgrade.UNKNOWN,
+                            "value": 0,
+                        }
+                        upgrade["username"], action = line.split(":")
+                        if "unlock" in action or "promote" in action:
+                            if "unlock" in action:
+                                action = action.replace("unlock on", "").strip()
+                                upgrade["type"] = Upgrade.UNLOCK
+                            else:
+                                action = action.replace("promote on", "").strip()
+                                upgrade["type"] = Upgrade.PROMOTE
+                            upgrade["value"] = int(pendulum.from_format(action, "MMMM DD, YYYY").format("X"))
+                        elif "exhib meter +" in action:
+                            upgrade["type"] = Upgrade.METER_INCREASE
+                            upgrade["value"] = int(action.replace("exhib meter +", "").strip())
+                        elif "exhib meter -" in action:
+                            upgrade["type"] = Upgrade.METER_DECREASE
+                            upgrade["value"] = int(action.replace("exhib meter -", "").strip())
+                        elif "life +" in action:
+                            upgrade["type"] = Upgrade.LIFE_INCREASE
+                            upgrade["value"] = int(action.replace("life +", "").strip())
+                        elif "life -" in action:
+                            upgrade["type"] = Upgrade.LIFE_DECREASE
+                            upgrade["value"] = int(action.replace("life -", "").strip())
+                        fighter["upgrades"].append(upgrade)
 
         return fighter
 
