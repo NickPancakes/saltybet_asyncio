@@ -134,7 +134,7 @@ class SaltybetClient:
                 ".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > td:nth-child(1) > a:nth-child(1)"
             )
             link = top_result_node.attrs["href"]
-            self._tournament_id = link.split("=")[-1]
+            self._tournament_id = int(link.split("=")[-1])
         return self._tournament_id
 
     @property
