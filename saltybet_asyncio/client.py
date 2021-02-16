@@ -1,53 +1,62 @@
 #!/usr/bin/env python3
+"""pylint option block-disable"""
 
 import asyncio
+from collections.abc import Callable, Awaitable
 import logging
-from typing import Tuple
+from typing import List, Tuple, Optional
 
 import aiohttp
 import aiorun
+import backoff
 import pendulum
 import socketio
 from aiohttp.web import HTTPUnauthorized
-from selectolax.parser import HTMLParser
+from selectolax.parser import HTMLParser  # pylint: disable=no-name-in-module
 
-from .enums import BettingSide, BettingStatus, GameMode, Tier, Upgrade
+from .types import Fighter, Match, Tournament, Upgrade, MatchStats, State, BettingSide, BettingStatus, GameMode, Tier, UpgradeType
+
 
 logger = logging.getLogger(__name__)
 
 
 class SaltybetClient:
     def __init__(self):
+        # pylint: disable=unsubscriptable-object
         # Connections
-        self.session = None
-        self.sio = None
-        self._semaphore = asyncio.Semaphore(1)
+        self.session: aiohttp.ClientSession = None
+        self.sio: socketio.AsyncClient = None
+        self._semaphore: asyncio.Semaphore = asyncio.Semaphore(1)
 
         # State
-        self._tournament_id = None
-        self._match_id = None
-        self._betting_status = BettingStatus.UNKNOWN
-        self._game_mode = GameMode.UNKNOWN
-        self._red_fighter = None
-        self._red_bets = 0
-        self._blue_fighter = None
-        self._blue_bets = 0
+        self._tournament_id: Optional[int] = None
+        self._match_id: Optional[int] = None
+        self._betting_status: BettingStatus = BettingStatus.UNKNOWN
+        self._game_mode: GameMode = GameMode.UNKNOWN
+        self._red_fighter: Optional[str] = None
+        self._red_bets: Optional[int] = 0
+        self._blue_fighter: Optional[str] = None
+        self._blue_bets: Optional[int] = 0
 
         # Credentials
-        self.email = None
-        self.password = None
+        self.email: Optional[str] = None
+        self.password: Optional[str] = None
 
         # Triggers
-        self._on_start_triggers = []
-        self._on_end_triggers = []
-        self._on_betting_change_triggers = []
-        self._on_betting_open_triggers = []
-        self._on_betting_locked_triggers = []
-        self._on_betting_payout_triggers = []
-        self._on_mode_change_triggers = []
-        self._on_mode_tournament_triggers = []
-        self._on_mode_exhibition_triggers = []
-        self._on_mode_matchmaking_triggers = []
+        self._on_start_triggers: List[Callable[[], Awaitable[None]]] = []
+        self._on_end_triggers: List[Callable[[], Awaitable[None]]] = []
+        self._on_betting_change_triggers: List[
+            Callable[[BettingStatus, Optional[str], Optional[int], Optional[str], Optional[int]], Awaitable[None]]
+        ] = []
+        self._on_betting_open_triggers: List[Callable[[Optional[str], Optional[str]], Awaitable[None]]] = []
+        self._on_betting_locked_triggers: List[
+            Callable[[[Optional[str], Optional[int], Optional[str], Optional[int]], Awaitable[None]]]
+        ] = []
+        self._on_betting_payout_triggers: List[Callable[[Optional[str], Optional[int], Optional[str], Optional[int]], Awaitable[None]]] = []
+        self._on_mode_change_triggers: List[Callable[[GameMode], Awaitable[None]]] = []
+        self._on_mode_tournament_triggers: List[Callable[[], Awaitable[None]]] = []
+        self._on_mode_exhibition_triggers: List[Callable[[], Awaitable[None]]] = []
+        self._on_mode_matchmaking_triggers: List[Callable[[], Awaitable[None]]] = []
 
     async def _init(self):
         if self.session is None:
@@ -101,7 +110,7 @@ class SaltybetClient:
             await self._login()
         except HTTPUnauthorized:
             logger.error("Balance only available when logged in.")
-            return
+            return 0
         balance = 0
         async with self.session.get("https://www.saltybet.com/") as resp:
             if not resp.ok:
@@ -114,7 +123,7 @@ class SaltybetClient:
         return balance
 
     @property
-    async def tournament_id(self) -> int:
+    async def tournament_id(self) -> Optional[int]:  # pylint: disable=unsubscriptable-object
         try:
             await self._login()
         except HTTPUnauthorized:
@@ -138,7 +147,7 @@ class SaltybetClient:
         return self._tournament_id
 
     @property
-    async def match_id(self) -> int:
+    async def match_id(self) -> Optional[int]:  # pylint: disable=unsubscriptable-object
         try:
             await self._login()
         except HTTPUnauthorized:
@@ -174,25 +183,25 @@ class SaltybetClient:
         return self._game_mode
 
     @property
-    async def red_fighter(self) -> str:
+    async def red_fighter(self) -> Optional[str]:  # pylint: disable=unsubscriptable-object
         if self._red_fighter is None:
             await self._get_state(store=True)
         return self._red_fighter
 
     @property
-    async def blue_fighter(self) -> str:
+    async def blue_fighter(self) -> Optional[str]:  # pylint: disable=unsubscriptable-object
         if self._blue_fighter is None:
             await self._get_state(store=True)
         return self._blue_fighter
 
     @property
-    async def red_bets(self) -> str:
+    async def red_bets(self) -> Optional[int]:  # pylint: disable=unsubscriptable-object
         if self._red_bets is None:
             await self._get_state(store=True)
         return self._red_bets
 
     @property
-    async def blue_bets(self) -> str:
+    async def blue_bets(self) -> Optional[int]:  # pylint: disable=unsubscriptable-object
         if self._blue_bets is None:
             await self._get_state(store=True)
         return self._blue_bets
@@ -226,8 +235,9 @@ class SaltybetClient:
             return
         if wager <= 0:
             return
-        if wager > await self.balance:
-            wager = self.balance
+        balance = await self.balance
+        if wager > balance:
+            wager = balance
         player = None
         if side == BettingSide.RED:
             player = "player1"
@@ -241,7 +251,7 @@ class SaltybetClient:
             else:
                 logger.debug("Bet placed successfully")
 
-    async def get_match_stats(self) -> dict:
+    async def get_match_stats(self) -> Optional[MatchStats]:  # pylint: disable=unsubscriptable-object
         try:
             await self._login()
         except HTTPUnauthorized:
@@ -250,7 +260,7 @@ class SaltybetClient:
         if not await self.illuminati:
             logger.error("Match stats only available with illuminati membership.")
             return None
-        stats = {}
+        stats: MatchStats = {}
         async with self.session.get("https://www.saltybet.com/ajax_get_stats.php") as resp:
             html = await resp.read()
             if html != "":
@@ -274,7 +284,8 @@ class SaltybetClient:
             tournament_title = tournament_name.split("Tournament)")[1].lstrip()
         return tournament_mode, tournament_title
 
-    async def scrape_tournament(self, tournament_id: int) -> dict:
+    @backoff.on_predicate(backoff.expo, lambda x: x is None, max_tries=10)
+    async def scrape_tournament(self, tournament_id: int) -> Optional[Tournament]:  # pylint: disable=unsubscriptable-object
         try:
             await self._login()
         except HTTPUnauthorized:
@@ -284,7 +295,7 @@ class SaltybetClient:
             logger.error("Tournament scraping only available with illuminati membership.")
             return None
 
-        tournament = {"name": None, "mode": GameMode.UNKNOWN, "matches": []}
+        tournament: Tournament = {"_id": tournament_id, "mode": GameMode.UNKNOWN, "match_ids": []}
         async with self._semaphore:
             async with self.session.get(f"https://www.saltybet.com/stats?tournament_id={tournament_id}") as resp:
                 html = await resp.read()
@@ -301,16 +312,16 @@ class SaltybetClient:
                 for row in rows:
                     match_link = row.css_first("td:nth-child(1) > a:nth-child(1)").attrs["href"]
                     match_id = match_link.split("=")[1]
-                    tournament["matches"].append(match_id)
+                    tournament["match_ids"].append(match_id)
         return tournament
 
-    async def scrape_match(self, match_id: int) -> dict:
-        match = {
-            "tournament_name": None,
+    @backoff.on_predicate(backoff.expo, lambda x: x is None, max_tries=10)
+    async def scrape_match(self, tournament_id: int, match_id: int) -> Optional[Match]:  # pylint: disable=unsubscriptable-object
+        match: Match = {
+            "_id": match_id,
             "mode": GameMode.UNKNOWN,
-            "red_fighter_name": None,
+            "tournament_id": tournament_id,
             "red_bets": 0,
-            "blue_fighter_name": None,
             "blue_bets": 0,
             "winner": BettingSide.UNKNOWN,
         }
@@ -342,7 +353,7 @@ class SaltybetClient:
                 title = result_node.text(deep=False).strip().replace("Winner:", "")
                 match["red_fighter_name"], remaining_title = title.split(" vs ")
                 match["blue_fighter_name"], remaining_title = title.split(" at ")
-                match["mode"], match["tournament_name"] = self._split_tournament_name_and_mode(remaining_title)
+                match["mode"], _ = self._split_tournament_name_and_mode(remaining_title)
                 # Bets
                 for row in rows:
                     bet_placed_node = row.css_first("td:nth-child(2)")
@@ -354,8 +365,9 @@ class SaltybetClient:
                         match["blue_bets"] += amount
         return match
 
-    async def scrape_compendium(self, tier: Tier) -> dict:
-        fighters = []
+    @backoff.on_predicate(backoff.expo, lambda x: x is None, max_tries=10)
+    async def scrape_compendium(self, tier: Tier) -> Optional[List[Fighter]]:  # pylint: disable=unsubscriptable-object
+        fighters: List[Fighter] = []
         async with self._semaphore:
             try:
                 await self._login()
@@ -369,15 +381,18 @@ class SaltybetClient:
             async with self.session.get(f"https://www.saltybet.com/compendium?tier={tier.value}") as resp:
                 html = await resp.read()
                 tree = HTMLParser(html)
-                for row in tree.css("#tierlist > li"):
+                rows = tree.css("#tierlist > li")
+                if not rows:
+                    return None
+                for row in rows:
                     fighter_id = row.css_first("a:nth-child(1)").attrs["href"].split("=")[-1]
                     fighters.append(
-                        {"name": row.text(), "id": fighter_id, "tier": tier,}
+                        {"name": row.text(), "_id": fighter_id, "tier": tier,}
                     )
         return fighters
 
-    async def scrape_fighter(self, tier: Tier, fighter_id: int) -> dict:
-        fighter = {}
+    async def scrape_fighter(self, tier: Tier, fighter_id: int) -> Optional[Fighter]:  # pylint: disable=unsubscriptable-object
+        fighter: Fighter = {}
         async with self._semaphore:
             try:
                 await self._login()
@@ -393,7 +408,7 @@ class SaltybetClient:
                 tree = HTMLParser(html)
                 fighter = {
                     "name": tree.css_first(".statname").text(deep=False).strip(),
-                    "id": fighter_id,
+                    "_id": fighter_id,
                     "tier": tier,
                     "author": tree.css_first("#basicstats").text(deep=False).strip().replace("by ", ""),
                     "life": int(
@@ -412,43 +427,43 @@ class SaltybetClient:
                         line = HTMLParser(html_line).text()
                         if ":" not in line:
                             continue
-                        upgrade = {
+                        upgrade: Upgrade = {
                             "username": "",
-                            "type": Upgrade.UNKNOWN,
+                            "_type": UpgradeType.UNKNOWN,
                             "value": 0,
                         }
                         upgrade["username"], action = line.split(":")
                         if "unlock" in action or "promote" in action:
                             if "unlock" in action:
                                 action = action.replace("unlock on", "").strip()
-                                upgrade["type"] = Upgrade.UNLOCK
+                                upgrade["_type"] = UpgradeType.UNLOCK
                             else:
                                 action = action.replace("promote on", "").strip()
-                                upgrade["type"] = Upgrade.PROMOTE
+                                upgrade["_type"] = UpgradeType.PROMOTE
                             upgrade["value"] = int(pendulum.from_format(action, "MMMM DD, YYYY").format("X"))
                         elif "exhib meter +" in action:
-                            upgrade["type"] = Upgrade.METER_INCREASE
+                            upgrade["_type"] = UpgradeType.METER_INCREASE
                             upgrade["value"] = int(action.replace("exhib meter +", "").strip())
                         elif "exhib meter -" in action:
-                            upgrade["type"] = Upgrade.METER_DECREASE
+                            upgrade["_type"] = UpgradeType.METER_DECREASE
                             upgrade["value"] = int(action.replace("exhib meter -", "").strip())
                         elif "life +" in action:
-                            upgrade["type"] = Upgrade.LIFE_INCREASE
+                            upgrade["_type"] = UpgradeType.LIFE_INCREASE
                             upgrade["value"] = int(action.replace("life +", "").strip())
                         elif "life -" in action:
-                            upgrade["type"] = Upgrade.LIFE_DECREASE
+                            upgrade["_type"] = UpgradeType.LIFE_DECREASE
                             upgrade["value"] = int(action.replace("life -", "").strip())
                         fighter["upgrades"].append(upgrade)
 
         return fighter
 
     # State Parsing
-    async def _get_state(self, store=False):
+    async def _get_state(self, store=False) -> State:
         state = {}
         async with self.session.get("https://www.saltybet.com/state.json") as resp:
             state = await resp.json(content_type="text/html")
 
-        out = {}
+        out: State = {}
         # Determine BettingStatus
         out["betting_status"] = BettingStatus.UNKNOWN
         if state["status"] == "open":
@@ -518,35 +533,35 @@ class SaltybetClient:
             await self._trigger_mode_change(game_mode)
 
     async def _trigger_betting_change(self, betting_status: BettingStatus):
-        for f in self._on_betting_change_triggers:
-            await f(
+        for f1 in self._on_betting_change_triggers:
+            await f1(
                 betting_status, self._red_fighter, self._red_bets, self._blue_fighter, self._blue_bets,
             )
         if betting_status == BettingStatus.OPEN:
-            for f in self._on_betting_open_triggers:
-                await f(self._red_fighter, self._blue_fighter)
+            for f2 in self._on_betting_open_triggers:
+                await f2(self._red_fighter, self._blue_fighter)
         elif betting_status == BettingStatus.LOCKED:
-            for f in self._on_betting_locked_triggers:
-                await f(self._red_fighter, self._red_bets, self._blue_fighter, self._blue_bets)
+            for f3 in self._on_betting_locked_triggers:
+                await f3(self._red_fighter, self._red_bets, self._blue_fighter, self._blue_bets)
         elif betting_status == BettingStatus.RED_WINS:
-            for f in self._on_betting_payout_triggers:
-                await f(self._red_fighter, self._red_bets, self._blue_fighter, self._blue_bets)
+            for f4 in self._on_betting_payout_triggers:
+                await f4(self._red_fighter, self._red_bets, self._blue_fighter, self._blue_bets)
         elif betting_status == BettingStatus.BLUE_WINS:
-            for f in self._on_betting_payout_triggers:
-                await f(self._blue_fighter, self._blue_bets, self._red_fighter, self._red_bets)
+            for f5 in self._on_betting_payout_triggers:
+                await f5(self._blue_fighter, self._blue_bets, self._red_fighter, self._red_bets)
 
     async def _trigger_mode_change(self, game_mode: GameMode):
-        for f in self._on_mode_change_triggers:
-            await f(game_mode)
+        for f1 in self._on_mode_change_triggers:
+            await f1(game_mode)
         if game_mode == GameMode.TOURNAMENT:
-            for f in self._on_mode_tournament_triggers:
-                await f()
+            for f2 in self._on_mode_tournament_triggers:
+                await f2()
         elif game_mode == GameMode.EXHIBITION:
-            for f in self._on_mode_exhibition_triggers:
-                await f()
+            for f3 in self._on_mode_exhibition_triggers:
+                await f3()
         elif game_mode == GameMode.MATCHMAKING:
-            for f in self._on_mode_matchmaking_triggers:
-                await f()
+            for f4 in self._on_mode_matchmaking_triggers:
+                await f4()
 
     # Event Decorators
     def on_start(self, func):
