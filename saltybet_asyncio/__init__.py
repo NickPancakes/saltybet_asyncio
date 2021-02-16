@@ -13,6 +13,5 @@ from .types import (
     Tournament as Tournament,
     Match as Match,
     MatchStats as MatchStats,
-    State as State,
 )
 

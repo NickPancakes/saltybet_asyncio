@@ -57,6 +57,7 @@ class Fighter(TypedDict, total=False):  # pylint: disable=inherit-non-class
     author: str
     life: int
     meter: int
+    palette: int
     sprite: str
     upgrades: List[Upgrade]
 
@@ -70,49 +71,20 @@ class Tournament(TypedDict, total=False):  # pylint: disable=inherit-non-class
 
 class Match(TypedDict, total=False):  # pylint: disable=inherit-non-class
     _id: int
-    tournament_id: int
+    tournament: Tournament
     mode: GameMode
     status: BettingStatus
-    red_fighter_id: str
-    red_fighter_name: str
-    red_tier: Tier
-    red_life: int
-    red_meter: int
-    red_pallette: int
+    red_fighter: Fighter
     red_bets: int
-    blue_fighter_id: str
-    blue_fighter_name: str
-    blue_tier: Tier
-    blue_life: int
-    blue_meter: int
-    blue_pallette: int
+    blue_fighter: Fighter
     blue_bets: int
     winner: BettingSide
 
 
 class MatchStats(TypedDict, total=False):  # pylint: disable=inherit-non-class
-    p1name: str
-    p1totalmatches: str
-    p1winrate: str
-    p1tier: str
-    p1life: str
-    p1meter: str
-    p1author: str
-    p1palette: str
-    p2name: str
-    p2totalmatches: str
-    p2winrate: str
-    p2tier: str
-    p2life: str
-    p2meter: str
-    p2author: str
-    p2palette: str
-
-
-class State(TypedDict, total=False):  # pylint: disable=inherit-non-class
-    red_fighter: str
-    blue_fighter: str
-    red_bets: int
-    blue_bets: int
-    game_mode: GameMode
-    betting_status: BettingStatus
+    red_fighter: Fighter
+    red_total_matches: int
+    red_win_rate: int
+    blue_fighter: Fighter
+    blue_total_matches: int
+    blue_win_rate: int
