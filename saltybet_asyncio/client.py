@@ -29,14 +29,14 @@ class SaltybetClient:
         self._semaphore: asyncio.Semaphore = asyncio.Semaphore(1)
 
         # State
-        self._tournament_id: Optional[int] = None
-        self._match_id: Optional[int] = None
         self._betting_status: BettingStatus = BettingStatus.UNKNOWN
         self._game_mode: GameMode = GameMode.UNKNOWN
-        self._red_fighter: Optional[str] = None
-        self._red_bets: Optional[int] = 0
-        self._blue_fighter: Optional[str] = None
-        self._blue_bets: Optional[int] = 0
+        self._tournament_id: int = 0
+        self._match_id: int = 0
+        self._red_fighter: str = ""
+        self._red_bets: int = 0
+        self._blue_fighter: str = ""
+        self._blue_bets: int = 0
 
         # Credentials
         self.email: Optional[str] = None
@@ -45,14 +45,10 @@ class SaltybetClient:
         # Triggers
         self._on_start_triggers: List[Callable[[], Awaitable[None]]] = []
         self._on_end_triggers: List[Callable[[], Awaitable[None]]] = []
-        self._on_betting_change_triggers: List[
-            Callable[[BettingStatus, Optional[str], Optional[int], Optional[str], Optional[int]], Awaitable[None]]
-        ] = []
-        self._on_betting_open_triggers: List[Callable[[Optional[str], Optional[str]], Awaitable[None]]] = []
-        self._on_betting_locked_triggers: List[
-            Callable[[[Optional[str], Optional[int], Optional[str], Optional[int]], Awaitable[None]]]
-        ] = []
-        self._on_betting_payout_triggers: List[Callable[[Optional[str], Optional[int], Optional[str], Optional[int]], Awaitable[None]]] = []
+        self._on_betting_change_triggers: List[Callable[[BettingStatus, str, int, str, int], Awaitable[None]]] = []
+        self._on_betting_open_triggers: List[Callable[[str, str], Awaitable[None]]] = []
+        self._on_betting_locked_triggers: List[Callable[[[str, int, str, int], Awaitable[None]]]] = []
+        self._on_betting_payout_triggers: List[Callable[[str, int, str, int], Awaitable[None]]] = []
         self._on_mode_change_triggers: List[Callable[[GameMode], Awaitable[None]]] = []
         self._on_mode_tournament_triggers: List[Callable[[], Awaitable[None]]] = []
         self._on_mode_exhibition_triggers: List[Callable[[], Awaitable[None]]] = []
@@ -564,52 +560,54 @@ class SaltybetClient:
                 await f4()
 
     # Event Decorators
-    def on_start(self, func):
+    def on_start(self, func: Callable[[], Awaitable[None]]) -> Callable[[], Awaitable[None]]:
         if func not in self._on_start_triggers:
             self._on_start_triggers.append(func)
         return func
 
-    def on_end(self, func):
+    def on_end(self, func: Callable[[], Awaitable[None]]) -> Callable[[], Awaitable[None]]:
         if func not in self._on_end_triggers:
             self._on_end_triggers.append(func)
         return func
 
-    def on_betting_change(self, func):
+    def on_betting_change(
+        self, func: Callable[[BettingStatus, str, int, str, int], Awaitable[None]]
+    ) -> Callable[[BettingStatus, str, int, str, int], Awaitable[None]]:
         if func not in self._on_betting_change_triggers:
             self._on_betting_change_triggers.append(func)
         return func
 
-    def on_betting_open(self, func):
+    def on_betting_open(self, func: Callable[[str, str], Awaitable[None]]) -> Callable[[str, str], Awaitable[None]]:
         if func not in self._on_betting_open_triggers:
             self._on_betting_open_triggers.append(func)
         return func
 
-    def on_betting_locked(self, func):
+    def on_betting_locked(self, func: Callable[[str, int, str, int], Awaitable[None]]) -> Callable[[str, int, str, int], Awaitable[None]]:
         if func not in self._on_betting_locked_triggers:
             self._on_betting_locked_triggers.append(func)
         return func
 
-    def on_betting_payout(self, func):
+    def on_betting_payout(self, func: Callable[[str, int, str, int], Awaitable[None]]) -> Callable[[str, int, str, int], Awaitable[None]]:
         if func not in self._on_betting_payout_triggers:
             self._on_betting_payout_triggers.append(func)
         return func
 
-    def on_mode_change(self, func):
+    def on_mode_change(self, func: Callable[[GameMode], Awaitable[None]]) -> Callable[[GameMode], Awaitable[None]]:
         if func not in self._on_mode_change_triggers:
             self._on_mode_change_triggers.append(func)
         return func
 
-    def on_mode_tournament(self, func):
+    def on_mode_tournament(self, func: Callable[[], Awaitable[None]]) -> Callable[[], Awaitable[None]]:
         if func not in self._on_mode_tournament_triggers:
             self._on_mode_tournament_triggers.append(func)
         return func
 
-    def on_mode_exhibition(self, func):
+    def on_mode_exhibition(self, func: Callable[[], Awaitable[None]]) -> Callable[[], Awaitable[None]]:
         if func not in self._on_mode_exhibition_triggers:
             self._on_mode_exhibition_triggers.append(func)
         return func
 
-    def on_mode_matchmaking(self, func):
+    def on_mode_matchmaking(self, func: Callable[[], Awaitable[None]]) -> Callable[[], Awaitable[None]]:
         if func not in self._on_mode_matchmaking_triggers:
             self._on_mode_matchmaking_triggers.append(func)
         return func
