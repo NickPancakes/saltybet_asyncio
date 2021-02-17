@@ -14,7 +14,7 @@ import socketio
 from aiohttp.web import HTTPUnauthorized
 from selectolax.parser import HTMLParser  # pylint: disable=no-name-in-module
 
-from .types import Fighter, Match, Tournament, Upgrade, MatchStats, BettingSide, BettingStatus, GameMode, Tier, UpgradeType
+from .types import Fighter, Match, Tournament, Upgrade, BettingSide, BettingStatus, GameMode, Tier, UpgradeType
 
 
 logger = logging.getLogger(__name__)
@@ -247,7 +247,7 @@ class SaltybetClient:
             else:
                 logger.debug("Bet placed successfully")
 
-    async def get_match_stats(self) -> Optional[MatchStats]:  # pylint: disable=unsubscriptable-object
+    async def get_match_stats(self) -> Optional[Match]:  # pylint: disable=unsubscriptable-object
         try:
             await self._login()
         except HTTPUnauthorized:
@@ -256,7 +256,7 @@ class SaltybetClient:
         if not await self.illuminati:
             logger.error("Match stats only available with illuminati membership.")
             return None
-        stats: MatchStats = {}
+        stats: Match = {}
         async with self.session.get("https://www.saltybet.com/ajax_get_stats.php") as resp:
             html = await resp.read()
             if html != "":
@@ -268,10 +268,10 @@ class SaltybetClient:
                     "life": jresp["p1life"],
                     "meter": jresp["p1meter"],
                     "palette": jresp["p1palette"],
+                    "total_matches": int(jresp["p1totalmatches"]),
+                    "won_matches": int(jresp["p1winrate"]),
                 }
                 stats["red_fighter"] = red_fighter
-                stats["red_total_matches"] = int(jresp["p1totalmatches"])
-                stats["red_win_rate"] = int(jresp["p1winrate"])
                 blue_fighter: Fighter = {
                     "name": jresp["p2name"],
                     "author": jresp["p2author"],
@@ -279,10 +279,10 @@ class SaltybetClient:
                     "life": jresp["p2life"],
                     "meter": jresp["p2meter"],
                     "palette": jresp["p2palette"],
+                    "total_matches": int(jresp["p2totalmatches"]),
+                    "won_matches": int(jresp["p2winrate"]),
                 }
                 stats["blue_fighter"] = blue_fighter
-                stats["blue_total_matches"] = int(jresp["p2totalmatches"])
-                stats["blue_win_rate"] = int(jresp["p2winrate"])
         return stats
 
     # Scraper Functions
@@ -409,6 +409,7 @@ class SaltybetClient:
                     )
         return fighters
 
+    @backoff.on_predicate(backoff.expo, lambda x: x is None, max_tries=10)
     async def scrape_fighter(self, tier: Tier, fighter_id: int) -> Optional[Fighter]:  # pylint: disable=unsubscriptable-object
         fighter: Fighter = {}
         async with self._semaphore:
