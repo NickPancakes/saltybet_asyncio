@@ -27,7 +27,7 @@ class SaltybetClient:
         # Connections
         self.session: aiohttp.ClientSession = None
         self.sio: socketio.AsyncClient = None
-        self._semaphore: asyncio.Semaphore = asyncio.Semaphore(1)
+        self._semaphore: asyncio.Semaphore = None
 
         # State
         self._betting_status: BettingStatus = BettingStatus.UNKNOWN
@@ -56,6 +56,9 @@ class SaltybetClient:
         self._on_mode_matchmaking_triggers: List[Callable[[], Awaitable[None]]] = []
 
     async def _init(self):
+        if self._semaphore is None:
+            # Create asyncio semaphore to disallow simulateous scraping.
+            self._semaphore = asyncio.Semaphore(1)
         if self.session is None:
             # Create aiohttp session
             self.session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=10, limit_per_host=5))
