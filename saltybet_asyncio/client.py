@@ -370,6 +370,10 @@ class SaltybetClient:
                 tournament_name = tree.css_first("#result > strong:nth-child(1)").text()
                 tournament["mode"], tournament["name"] = self._split_tournament_name_and_mode(tournament_name)
 
+                # Skip if unable to determine game mode from title.
+                if tournament["mode"] == GameMode.UNKNOWN:
+                    return None
+
                 # Match IDs
                 for row in rows:
                     match_link = row.css_first("td:nth-child(1) > a:nth-child(1)").attrs["href"]
