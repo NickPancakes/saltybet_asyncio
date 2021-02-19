@@ -465,16 +465,15 @@ class SaltybetClient:
                     "name": tree.css_first(".statname").text(deep=False).strip(),
                     "fighter_id": fighter_id,
                     "tier": tier,
-                    "author": tree.css_first("#basicstats").text(deep=False).strip().replace("by ", ""),
-                    "life": int(
-                        tree.css_first("table.detailedstats:nth-child(5) > tbody:nth-child(2) > tr:nth-child(2) > td:nth-child(1)").text()
-                    ),
-                    "meter": int(
-                        tree.css_first("table.detailedstats:nth-child(5) > tbody:nth-child(2) > tr:nth-child(2) > td:nth-child(2)").text()
-                    ),
+                    "life": int(tree.css_first("table.detailedstats > tbody:nth-child(2) > tr:nth-child(2) > td:nth-child(1)").text()),
+                    "meter": int(tree.css_first("table.detailedstats > tbody:nth-child(2) > tr:nth-child(2) > td:nth-child(2)").text()),
                     "sprite": f"https://www.saltybet.com/images/charanim/{fighter_id}.gif",
                     "upgrades": [],
                 }
+
+                author = tree.css_first("#basicstats").text(deep=False).strip().replace("by ", "")
+                if author != "":
+                    fighter["author"] = author
 
                 upgrades_block = tree.css_first("#compendiumright > div:nth-child(7)")
                 if upgrades_block is not None:
