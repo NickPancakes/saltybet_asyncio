@@ -120,7 +120,7 @@ class SaltybetClient:
         return balance
 
     @property
-    async def tournament_id(self) -> int:
+    async def tournament_id(self) -> Optional[int]:  # pylint: disable=unsubscriptable-object
         try:
             await self._login()
         except HTTPUnauthorized:
@@ -144,7 +144,7 @@ class SaltybetClient:
         return self._tournament_id
 
     @property
-    async def match_id(self) -> int:
+    async def match_id(self) -> Optional[int]:  # pylint: disable=unsubscriptable-object
         try:
             await self._login()
         except HTTPUnauthorized:
