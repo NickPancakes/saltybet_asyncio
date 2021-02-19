@@ -4,6 +4,7 @@
 import asyncio
 from collections.abc import Callable, Awaitable
 from decimal import Decimal
+import json
 import logging
 from typing import List, Tuple, Optional
 
@@ -70,6 +71,31 @@ class SaltybetClient:
             # SocketIO Client
             self.sio = socketio.AsyncClient()
 
+    # HTTP GET Request with limit message check.
+    async def _get_html(
+        self, url: str, wait_secs: int = 60, max_retries: int = 10
+    ) -> Optional[bytes]:  # pylint: disable=unsubscriptable-object
+        out = None
+        async with self._semaphore:
+            for i in range(max_retries):
+                async with self.session.get(url) as resp:
+                    if not resp.ok:
+                        logger.error(f"Response code {resp.status} from {resp.url}.")
+                        break
+
+                    html = await resp.read()
+
+                    # Check for limit reached message.
+                    content = HTMLParser(html).css_first("#content")
+                    if content is not None and "The maximum number of stats requests has been reached." in content.text(deep=False):
+                        logger.info(f"Maximum requests hit on attempt {i}. Waiting {wait_secs} seconds before retrying...")
+                        await asyncio.sleep(wait_secs)
+                        continue
+
+                    out = html
+                    break
+        return out
+
     # Async Properties
     @property
     async def logged_in(self) -> bool:
@@ -78,7 +104,7 @@ class SaltybetClient:
         logged_in = True
         async with self.session.get("https://www.saltybet.com/") as resp:
             if not resp.ok:
-                logging.error(f"Response code {resp.status} from {resp.url}.")
+                logger.error(f"Response code {resp.status} from {resp.url}.")
                 return False
             html = await resp.read()
             selector = ".nav-text > a:nth-child(1) > span:nth-child(1)"
@@ -96,16 +122,12 @@ class SaltybetClient:
             logger.error("Illuminati status cannot be checked without being logged in.")
             return False
         illuminati = False
-        async with self.session.get("https://www.saltybet.com/") as resp:
-            if not resp.ok:
-                logging.error(f"Response code {resp.status} from {resp.url}.")
-                return False
-            html = await resp.read()
-            selector = ".navbar-text > span:nth-child(1)"
-            for node in HTMLParser(html).css(selector):
-                if "goldtext" in node.attributes["class"]:
-                    illuminati = True
-                    break
+        html = await self._get_html("https://www.saltybet.com/")
+        selector = ".navbar-text > span:nth-child(1)"
+        for node in HTMLParser(html).css(selector):
+            if "goldtext" in node.attributes["class"]:
+                illuminati = True
+                break
         return illuminati
 
     @property
@@ -115,15 +137,18 @@ class SaltybetClient:
         except HTTPUnauthorized:
             logger.error("Balance only available when logged in.")
             return 0
+
         balance = 0
-        async with self.session.get("https://www.saltybet.com/") as resp:
-            if not resp.ok:
-                logging.error(f"Response code {resp.status} from {resp.url}.")
-                return 0
-            html = await resp.read()
-            selector = "#balance"
-            for node in HTMLParser(html).css(selector):
-                balance = int(node.text().replace(",", ""))
+
+        html = await self._get_html("https://www.saltybet.com/")
+        if html is None:
+            logger.error("Failed to get balance.")
+            return 0
+
+        selector = "#balance"
+        for node in HTMLParser(html).css(selector):
+            balance = int(node.text().replace(",", ""))
+
         return balance
 
     @property
@@ -133,21 +158,27 @@ class SaltybetClient:
         except HTTPUnauthorized:
             logger.error("Tournament ID only available when logged in.")
             return None
+
         if not await self.illuminati:
             logger.error("Tournament ID only available with illuminati membership.")
             return None
+
         if self._tournament_id != 0:
             return self._tournament_id
-        async with self.session.get("https://www.saltybet.com/stats?tournamentstats=1&page=1") as resp:
-            if not resp.ok:
-                logging.error(f"Response code {resp.status} from {resp.url}.")
-                return None
-            html = await resp.read()
-            top_result_node = HTMLParser(html).css_first(
-                ".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > td:nth-child(1) > a:nth-child(1)"
-            )
-            link = top_result_node.attrs["href"]
-            self._tournament_id = int(link.split("=")[-1])
+
+        html = await self._get_html("https://www.saltybet.com/stats?tournamentstats=1&page=1")
+        if html is None:
+            logger.error("Failed to get Tournament ID")
+            return None
+
+        top_result_node = HTMLParser(html).css_first(
+            ".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > td:nth-child(1) > a:nth-child(1)"
+        )
+        if top_result_node is None:
+            logger.error("Failed to get Tournament ID")
+            return None
+        link = top_result_node.attrs["href"]
+        self._tournament_id = int(link.split("=")[-1])
         return self._tournament_id
 
     @property
@@ -165,12 +196,18 @@ class SaltybetClient:
             return self._match_id
 
         tournament_id = await self.tournament_id
-        async with self.session.get(f"https://www.saltybet.com/stats?tournament_id={tournament_id}") as resp:
-            html = await resp.read()
-            tree = HTMLParser(html)
-            top_row = tree.css_first(".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > td:nth-child(1) > a:nth-child(1)")
-            match_link = top_row.attrs["href"]
-            self._match_id = match_link.split("=")[1]
+        html = await self._get_html(f"https://www.saltybet.com/stats?tournament_id={tournament_id}")
+        if html is None:
+            logger.error("Failed to get Match ID")
+            return None
+
+        tree = HTMLParser(html)
+        top_row = tree.css_first(".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > td:nth-child(1) > a:nth-child(1)")
+        if top_row is None:
+            logger.error("Failed to get Match ID")
+            return None
+        match_link = top_row.attrs["href"]
+        self._match_id = match_link.split("=")[1]
         return self._match_id
 
     # Properties parsed from state.json
@@ -298,32 +335,31 @@ class SaltybetClient:
             logger.error("Match stats only available with illuminati membership.")
             return None
         stats: Match = {}
-        async with self.session.get("https://www.saltybet.com/ajax_get_stats.php") as resp:
-            html = await resp.read()
-            if html != "":
-                jresp = await resp.json(content_type="text/html")
-                red_fighter: Fighter = {
-                    "name": jresp["p1name"],
-                    "author": jresp["p1author"],
-                    "tier": Tier[jresp["p1tier"]],
-                    "life": jresp["p1life"],
-                    "meter": jresp["p1meter"],
-                    "palette": jresp["p1palette"],
-                    "total_matches": int(jresp["p1totalmatches"]),
-                    "win_rate": Decimal(jresp["p1winrate"]) / Decimal(100),
-                }
-                stats["red_fighter"] = red_fighter
-                blue_fighter: Fighter = {
-                    "name": jresp["p2name"],
-                    "author": jresp["p2author"],
-                    "tier": Tier[jresp["p2tier"]],
-                    "life": jresp["p2life"],
-                    "meter": jresp["p2meter"],
-                    "palette": jresp["p2palette"],
-                    "total_matches": int(jresp["p2totalmatches"]),
-                    "win_rate": Decimal(jresp["p2winrate"]) / Decimal(100),
-                }
-                stats["blue_fighter"] = blue_fighter
+        html = await self._get_html("https://www.saltybet.com/ajax_get_stats.php")
+        if html is not None and html != "":
+            jresp = json.loads(html)
+            red_fighter: Fighter = {
+                "name": jresp["p1name"],
+                "author": jresp["p1author"],
+                "tier": Tier[jresp["p1tier"]],
+                "life": jresp["p1life"],
+                "meter": jresp["p1meter"],
+                "palette": jresp["p1palette"],
+                "total_matches": int(jresp["p1totalmatches"]),
+                "win_rate": Decimal(jresp["p1winrate"]) / Decimal(100),
+            }
+            stats["red_fighter"] = red_fighter
+            blue_fighter: Fighter = {
+                "name": jresp["p2name"],
+                "author": jresp["p2author"],
+                "tier": Tier[jresp["p2tier"]],
+                "life": jresp["p2life"],
+                "meter": jresp["p2meter"],
+                "palette": jresp["p2palette"],
+                "total_matches": int(jresp["p2totalmatches"]),
+                "win_rate": Decimal(jresp["p2winrate"]) / Decimal(100),
+            }
+            stats["blue_fighter"] = blue_fighter
         return stats
 
     # Scraper Functions
@@ -355,30 +391,30 @@ class SaltybetClient:
             return None
 
         tournament: Tournament = {"tournament_id": tournament_id, "mode": GameMode.UNKNOWN, "match_ids": []}
-        async with self._semaphore:
-            async with self.session.get(f"https://www.saltybet.com/stats?tournament_id={tournament_id}") as resp:
-                resp.raise_for_status()
-                html = await resp.read()
-                tree = HTMLParser(html)
+        html = await self._get_html(f"https://www.saltybet.com/stats?tournament_id={tournament_id}")
+        if html is None:
+            logger.error("Failed to scrape Tournament")
+            return None
+        tree = HTMLParser(html)
 
-                # Determine if empty
-                rows = tree.css(".leaderboard > tbody:nth-child(2) > tr")
-                if not rows:
-                    return None
+        # Determine if empty
+        rows = tree.css(".leaderboard > tbody:nth-child(2) > tr")
+        if not rows:
+            return None
 
-                # Name and Mode
-                tournament_name = tree.css_first("#result > strong:nth-child(1)").text()
-                tournament["mode"], tournament["name"] = self._split_tournament_name_and_mode(tournament_name)
+        # Name and Mode
+        tournament_name = tree.css_first("#result > strong:nth-child(1)").text()
+        tournament["mode"], tournament["name"] = self._split_tournament_name_and_mode(tournament_name)
 
-                # Skip if unable to determine game mode from title.
-                if tournament["mode"] == GameMode.UNKNOWN:
-                    return None
+        # Skip if unable to determine game mode from title.
+        if tournament["mode"] == GameMode.UNKNOWN:
+            return None
 
-                # Match IDs
-                for row in rows:
-                    match_link = row.css_first("td:nth-child(1) > a:nth-child(1)").attrs["href"]
-                    match_id = match_link.split("=")[1]
-                    tournament["match_ids"].append(match_id)
+        # Match IDs
+        for row in rows:
+            match_link = row.css_first("td:nth-child(1) > a:nth-child(1)").attrs["href"]
+            match_id = match_link.split("=")[1]
+            tournament["match_ids"].append(match_id)
         return tournament
 
     @backoff.on_exception(backoff.expo, (aiohttp.ClientResponseError, FailedToLoadError), max_tries=5)
@@ -393,143 +429,146 @@ class SaltybetClient:
             "red_bets": 0,
             "blue_bets": 0,
         }
-        async with self._semaphore:
-            try:
-                await self._login()
-            except HTTPUnauthorized:
-                logger.error("Match scraping only available when logged in.")
-                return None
-            if not await self.illuminati:
-                logger.error("Match scraping only available with illuminati membership.")
-                return None
+        try:
+            await self._login()
+        except HTTPUnauthorized:
+            logger.error("Match scraping only available when logged in.")
+            return None
+        if not await self.illuminati:
+            logger.error("Match scraping only available with illuminati membership.")
+            return None
 
-            async with self.session.get(f"https://www.saltybet.com/stats?match_id={match_id}") as resp:
-                resp.raise_for_status()
-                html = await resp.read()
-                tree = HTMLParser(html)
+        html = await self._get_html(f"https://www.saltybet.com/stats?match_id={match_id}")
+        if html is None:
+            logger.error("Failed to scrape Match")
+            return None
+        tree = HTMLParser(html)
 
-                # Determine if Empty
-                rows = tree.css(".leaderboard > tbody:nth-child(2) > tr")
-                if not rows:
-                    return None
+        # Determine if Empty
+        rows = tree.css(".leaderboard > tbody:nth-child(2) > tr")
+        if not rows:
+            logger.error("Failed to scrape Match")
+            return None
 
-                result_node = tree.css_first("#result")
-                # Winner
-                winner_class = result_node.css_first("span").attrs["class"]
-                if "redtext" in winner_class:
-                    match["status"] = BettingStatus.RED_WINS
-                elif "bluetext" in winner_class:
-                    match["status"] = BettingStatus.BLUE_WINS
+        result_node = tree.css_first("#result")
+        # Winner
+        winner_class = result_node.css_first("span").attrs["class"]
+        if "redtext" in winner_class:
+            match["status"] = BettingStatus.RED_WINS
+        elif "bluetext" in winner_class:
+            match["status"] = BettingStatus.BLUE_WINS
 
-                # Title / Fighters
-                title = result_node.text(deep=False).strip().replace("Winner:", "")
-                match["red_fighter"]["name"], remaining_title = title.split(" vs ")
-                match["blue_fighter"]["name"], remaining_title = remaining_title.split(" at ")
-                match["mode"], _ = self._split_tournament_name_and_mode(remaining_title)
+        # Title / Fighters
+        title = result_node.text(deep=False).strip().replace("Winner:", "")
+        match["red_fighter"]["name"], remaining_title = title.split(" vs ")
+        match["blue_fighter"]["name"], remaining_title = remaining_title.split(" at ")
+        match["mode"], _ = self._split_tournament_name_and_mode(remaining_title)
 
-                # Bets
-                for row in rows:
-                    bet_placed_node = row.css_first("td:nth-child(2)")
-                    amount = int(bet_placed_node.text().split(" on ")[0])
-                    color_class = bet_placed_node.css_first("span:nth-child(1)").attrs["class"]
-                    if "redtext" in color_class:
-                        match["red_bets"] += amount
-                    elif "bluetext" in color_class:
-                        match["blue_bets"] += amount
+        # Bets
+        for row in rows:
+            bet_placed_node = row.css_first("td:nth-child(2)")
+            amount = int(bet_placed_node.text().split(" on ")[0])
+            color_class = bet_placed_node.css_first("span:nth-child(1)").attrs["class"]
+            if "redtext" in color_class:
+                match["red_bets"] += amount
+            elif "bluetext" in color_class:
+                match["blue_bets"] += amount
         return match
 
     @backoff.on_exception(backoff.expo, (aiohttp.ClientResponseError, FailedToLoadError), max_tries=5)
     async def scrape_compendium(self, tier: Tier) -> Optional[List[Fighter]]:  # pylint: disable=unsubscriptable-object
         fighters: List[Fighter] = []
-        async with self._semaphore:
-            try:
-                await self._login()
-            except HTTPUnauthorized:
-                logger.error("Compendium scraping only available when logged in.")
-                return None
-            if not await self.illuminati:
-                logger.error("Compendium scraping only available with illuminati membership.")
-                return None
+        try:
+            await self._login()
+        except HTTPUnauthorized:
+            logger.error("Compendium scraping only available when logged in.")
+            return None
+        if not await self.illuminati:
+            logger.error("Compendium scraping only available with illuminati membership.")
+            return None
 
-            async with self.session.get(f"https://www.saltybet.com/compendium?tier={tier.value}") as resp:
-                resp.raise_for_status()
-                html = await resp.read()
-                tree = HTMLParser(html)
-                rows = tree.css("#tierlist > li")
-                if not rows:
-                    return None
+        html = await self._get_html(f"https://www.saltybet.com/compendium?tier={tier.value}")
+        if html is None:
+            logger.error("Failed to scrape Compendium")
+            return None
+        tree = HTMLParser(html)
+        rows = tree.css("#tierlist > li")
+        if not rows:
+            logger.error("Failed to scrape Compendium")
+            return None
 
-                for row in rows:
-                    fighter_id = row.css_first("a:nth-child(1)").attrs["href"].split("=")[-1]
-                    fighters.append(
-                        {"name": row.text(), "fighter_id": fighter_id, "tier": tier,}
-                    )
+        for row in rows:
+            fighter_id = row.css_first("a:nth-child(1)").attrs["href"].split("=")[-1]
+            fighters.append(
+                {"name": row.text(), "fighter_id": fighter_id, "tier": tier,}
+            )
         return fighters
 
     @backoff.on_exception(backoff.expo, (aiohttp.ClientResponseError, FailedToLoadError), max_tries=5)
     async def scrape_fighter(self, tier: Tier, fighter_id: int) -> Optional[Fighter]:  # pylint: disable=unsubscriptable-object
         fighter: Fighter = {}
-        async with self._semaphore:
-            try:
-                await self._login()
-            except HTTPUnauthorized:
-                logger.error("Compendium scraping only available when logged in.")
-                return None
-            if not await self.illuminati:
-                logger.error("Compendium scraping only available with illuminati membership.")
-                return None
+        try:
+            await self._login()
+        except HTTPUnauthorized:
+            logger.error("Compendium scraping only available when logged in.")
+            return None
+        if not await self.illuminati:
+            logger.error("Compendium scraping only available with illuminati membership.")
+            return None
 
-            async with self.session.get(f"https://www.saltybet.com/compendium?tier={tier.value}&character={fighter_id}") as resp:
-                resp.raise_for_status()
-                html = await resp.read()
-                tree = HTMLParser(html)
-                fighter = {
-                    "name": tree.css_first(".statname").text(deep=False).strip(),
-                    "fighter_id": fighter_id,
-                    "tier": tier,
-                    "life": int(tree.css_first("table.detailedstats > tbody:nth-child(2) > tr:nth-child(2) > td:nth-child(1)").text()),
-                    "meter": int(tree.css_first("table.detailedstats > tbody:nth-child(2) > tr:nth-child(2) > td:nth-child(2)").text()),
-                    "sprite": f"https://www.saltybet.com/images/charanim/{fighter_id}.gif",
-                    "upgrades": [],
+        html = await self._get_html(f"https://www.saltybet.com/compendium?tier={tier.value}&character={fighter_id}")
+        if html is None:
+            logger.error("Failed to scrape Fighter")
+            return None
+
+        tree = HTMLParser(html)
+        fighter = {
+            "name": tree.css_first(".statname").text(deep=False).strip(),
+            "fighter_id": fighter_id,
+            "tier": tier,
+            "life": int(tree.css_first("table.detailedstats > tbody:nth-child(2) > tr:nth-child(2) > td:nth-child(1)").text()),
+            "meter": int(tree.css_first("table.detailedstats > tbody:nth-child(2) > tr:nth-child(2) > td:nth-child(2)").text()),
+            "sprite": f"https://www.saltybet.com/images/charanim/{fighter_id}.gif",
+            "upgrades": [],
+        }
+
+        author = tree.css_first("#basicstats").text(deep=False).strip().replace("by ", "")
+        if author != "":
+            fighter["author"] = author
+
+        upgrades_block = tree.css_first("#compendiumright > div:nth-child(7)")
+        if upgrades_block is not None:
+            for html_line in upgrades_block.html.split("<br>"):
+                line = HTMLParser(html_line).text()
+                if ":" not in line:
+                    continue
+                upgrade: Upgrade = {
+                    "username": "",
+                    "upgrade_type": UpgradeType.UNKNOWN,
+                    "value": 0,
                 }
-
-                author = tree.css_first("#basicstats").text(deep=False).strip().replace("by ", "")
-                if author != "":
-                    fighter["author"] = author
-
-                upgrades_block = tree.css_first("#compendiumright > div:nth-child(7)")
-                if upgrades_block is not None:
-                    for html_line in upgrades_block.html.split("<br>"):
-                        line = HTMLParser(html_line).text()
-                        if ":" not in line:
-                            continue
-                        upgrade: Upgrade = {
-                            "username": "",
-                            "upgrade_type": UpgradeType.UNKNOWN,
-                            "value": 0,
-                        }
-                        upgrade["username"], action = line.split(":")
-                        if "unlock" in action or "promote" in action:
-                            if "unlock" in action:
-                                action = action.replace("unlock on", "").strip()
-                                upgrade["upgrade_type"] = UpgradeType.UNLOCK
-                            else:
-                                action = action.replace("promote on", "").strip()
-                                upgrade["upgrade_type"] = UpgradeType.PROMOTE
-                            upgrade["value"] = int(pendulum.from_format(action, "MMMM DD, YYYY").format("X"))
-                        elif "exhib meter +" in action:
-                            upgrade["upgrade_type"] = UpgradeType.METER_INCREASE
-                            upgrade["value"] = int(action.replace("exhib meter +", "").strip())
-                        elif "exhib meter -" in action:
-                            upgrade["upgrade_type"] = UpgradeType.METER_DECREASE
-                            upgrade["value"] = int(action.replace("exhib meter -", "").strip())
-                        elif "life +" in action:
-                            upgrade["upgrade_type"] = UpgradeType.LIFE_INCREASE
-                            upgrade["value"] = int(action.replace("life +", "").strip())
-                        elif "life -" in action:
-                            upgrade["upgrade_type"] = UpgradeType.LIFE_DECREASE
-                            upgrade["value"] = int(action.replace("life -", "").strip())
-                        fighter["upgrades"].append(upgrade)
+                upgrade["username"], action = line.split(":")
+                if "unlock" in action or "promote" in action:
+                    if "unlock" in action:
+                        action = action.replace("unlock on", "").strip()
+                        upgrade["upgrade_type"] = UpgradeType.UNLOCK
+                    else:
+                        action = action.replace("promote on", "").strip()
+                        upgrade["upgrade_type"] = UpgradeType.PROMOTE
+                    upgrade["value"] = int(pendulum.from_format(action, "MMMM DD, YYYY").format("X"))
+                elif "exhib meter +" in action:
+                    upgrade["upgrade_type"] = UpgradeType.METER_INCREASE
+                    upgrade["value"] = int(action.replace("exhib meter +", "").strip())
+                elif "exhib meter -" in action:
+                    upgrade["upgrade_type"] = UpgradeType.METER_DECREASE
+                    upgrade["value"] = int(action.replace("exhib meter -", "").strip())
+                elif "life +" in action:
+                    upgrade["upgrade_type"] = UpgradeType.LIFE_INCREASE
+                    upgrade["value"] = int(action.replace("life +", "").strip())
+                elif "life -" in action:
+                    upgrade["upgrade_type"] = UpgradeType.LIFE_DECREASE
+                    upgrade["value"] = int(action.replace("life -", "").strip())
+                fighter["upgrades"].append(upgrade)
 
         return fighter
 
