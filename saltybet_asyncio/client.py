@@ -411,7 +411,7 @@ class SaltybetClient:
                 # Determine if Empty
                 rows = tree.css(".leaderboard > tbody:nth-child(2) > tr")
                 if not rows:
-                    raise FailedToLoadError
+                    return None
 
                 result_node = tree.css_first("#result")
                 # Winner
@@ -420,11 +420,13 @@ class SaltybetClient:
                     match["status"] = BettingStatus.RED_WINS
                 elif "bluetext" in winner_class:
                     match["status"] = BettingStatus.BLUE_WINS
+
                 # Title / Fighters
                 title = result_node.text(deep=False).strip().replace("Winner:", "")
                 match["red_fighter"]["name"], remaining_title = title.split(" vs ")
                 match["blue_fighter"]["name"], remaining_title = remaining_title.split(" at ")
                 match["mode"], _ = self._split_tournament_name_and_mode(remaining_title)
+
                 # Bets
                 for row in rows:
                     bet_placed_node = row.css_first("td:nth-child(2)")
