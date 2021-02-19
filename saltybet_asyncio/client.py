@@ -172,37 +172,37 @@ class SaltybetClient:
     # Properties parsed from state.json
     @property
     async def betting_status(self) -> BettingStatus:
-        if self._betting_status is BettingStatus.UNKNOWN:
+        if self._betting_status == BettingStatus.UNKNOWN:
             await self._get_state(store=True)
         return self._betting_status
 
     @property
     async def game_mode(self) -> GameMode:
-        if self._game_mode is GameMode.UNKNOWN:
+        if self._game_mode == GameMode.UNKNOWN:
             await self._get_state(store=True)
         return self._game_mode
 
     @property
     async def red_fighter(self) -> str:
-        if self._red_fighter_name is "":
+        if self._red_fighter_name == "":
             await self._get_state(store=True)
         return self._red_fighter_name
 
     @property
     async def blue_fighter(self) -> str:
-        if self._blue_fighter_name is "":
+        if self._blue_fighter_name == "":
             await self._get_state(store=True)
         return self._blue_fighter_name
 
     @property
     async def red_bets(self) -> int:
-        if self._red_bets is 0:
+        if self._red_bets == 0:
             await self._get_state(store=True)
         return self._red_bets
 
     @property
     async def blue_bets(self) -> int:
-        if self._blue_bets is 0:
+        if self._blue_bets == 0:
             await self._get_state(store=True)
         return self._blue_bets
 
@@ -326,8 +326,8 @@ class SaltybetClient:
     def _split_tournament_name_and_mode(self, tournament_name: str) -> Tuple[GameMode, str]:
         EXHIBITIONS_TAG = "(Exhibitions)"
         MATCHMAKING_TAG = "(Matchmaking)"
-        tournament_title = None
-        tournament_mode = None
+        tournament_title = ""
+        tournament_mode = GameMode.UNKNOWN
         if tournament_name.startswith(EXHIBITIONS_TAG):
             tournament_mode = GameMode.EXHIBITION
             tournament_title = tournament_name.replace(EXHIBITIONS_TAG, "").lstrip()
