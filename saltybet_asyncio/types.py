@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
+from decimal import Decimal
 from enum import IntEnum
-from typing import TypedDict, List
+from typing import Dict, TypedDict, List
 
 
 class BettingStatus(IntEnum):
@@ -45,13 +46,13 @@ class UpgradeType(IntEnum):
 
 
 class Upgrade(TypedDict, total=False):  # pylint: disable=inherit-non-class
-    _type: UpgradeType
+    upgrade_type: UpgradeType
     username: str
     value: int
 
 
 class Fighter(TypedDict, total=False):  # pylint: disable=inherit-non-class
-    _id: int
+    fighter_id: int
     name: str
     tier: Tier
     author: str
@@ -59,25 +60,43 @@ class Fighter(TypedDict, total=False):  # pylint: disable=inherit-non-class
     meter: int
     palette: int
     sprite: str
-    won_matches: int
+    win_rate: Decimal
     total_matches: int
     upgrades: List[Upgrade]
 
 
 class Tournament(TypedDict, total=False):  # pylint: disable=inherit-non-class
-    _id: int
+    tournament_id: int
     name: str
     mode: GameMode
     match_ids: List[int]
 
 
 class Match(TypedDict, total=False):  # pylint: disable=inherit-non-class
-    _id: int
+    match_id: int
     tournament: Tournament
-    mode: GameMode
     status: BettingStatus
+    mode: GameMode
     red_fighter: Fighter
     red_bets: int
     blue_fighter: Fighter
     blue_bets: int
-    winner: BettingSide
+
+
+class Bettor(TypedDict, total=False):  # pylint: disable=inherit-non-class
+    bettor_id: int
+    username: str
+    balance: int
+    wager: int
+    bet_side: BettingSide
+    illuminati: bool
+    avatar: str
+    color_r: str
+    color_g: str
+    color_b: str
+
+
+class Bettors(TypedDict, total=False):  # pylint: disable=inherit-non-class
+    match: Match
+    bettors: List[Bettor]
+

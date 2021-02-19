@@ -12,6 +12,7 @@ from .types import (
     Fighter as Fighter,
     Tournament as Tournament,
     Match as Match,
-    MatchStats as MatchStats,
+    Bettor as Bettor,
+    Bettors as Bettors,
 )
 

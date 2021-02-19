@@ -67,6 +67,7 @@ if __name__ == "__main__":
                 await client.place_bet(bet_side, bet_amount)
                 fighter_name = red_fighter if bet_side == BettingSide.RED else blue_fighter
                 logger.info(f"Bet ${bet_amount} on '{fighter_name}' on the {bet_side.name} side.")
+        logger.info(f"Bettors:\n{pformat(await client.get_bettors())}")
 
     @client.on_betting_locked
     async def print_ratio(red_fighter, red_bets, blue_fighter, blue_bets):
@@ -79,6 +80,7 @@ if __name__ == "__main__":
             logger.info(f"Bets favor {blue_fighter} {bet_favor:.2f}:1 over {red_fighter}")
         else:
             logger.info(f"Bets are 1:1!")
+        logger.info(f"Bettors:\n{pformat(await client.get_bettors())}")
 
     @client.on_betting_payout
     async def print_win(winning_fighter, winning_bets, losing_fighter, losing_bets):
