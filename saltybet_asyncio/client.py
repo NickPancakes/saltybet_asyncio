@@ -21,6 +21,10 @@ from .types import Fighter, Match, Tournament, Upgrade, BettingSide, BettingStat
 logger = logging.getLogger(__name__)
 
 
+class FailedToLoadError(BaseException):
+    pass
+
+
 class SaltybetClient:
     def __init__(self):
         # pylint: disable=unsubscriptable-object
@@ -339,7 +343,7 @@ class SaltybetClient:
             tournament_title = tournament_name.split("Tournament)")[1].lstrip()
         return tournament_mode, tournament_title
 
-    @backoff.on_predicate(backoff.expo, lambda x: x is None, max_tries=10)
+    @backoff.on_exception(backoff.expo, (aiohttp.ClientResponseError, FailedToLoadError), max_tries=5)
     async def scrape_tournament(self, tournament_id: int) -> Optional[Tournament]:  # pylint: disable=unsubscriptable-object
         try:
             await self._login()
@@ -353,8 +357,11 @@ class SaltybetClient:
         tournament: Tournament = {"tournament_id": tournament_id, "mode": GameMode.UNKNOWN, "match_ids": []}
         async with self._semaphore:
             async with self.session.get(f"https://www.saltybet.com/stats?tournament_id={tournament_id}") as resp:
+                resp.raise_for_status()
                 html = await resp.read()
                 tree = HTMLParser(html)
+
+                # Determine if empty
                 rows = tree.css(".leaderboard > tbody:nth-child(2) > tr")
                 if not rows:
                     return None
@@ -370,7 +377,7 @@ class SaltybetClient:
                     tournament["match_ids"].append(match_id)
         return tournament
 
-    @backoff.on_predicate(backoff.expo, lambda x: x is None, max_tries=10)
+    @backoff.on_exception(backoff.expo, (aiohttp.ClientResponseError, FailedToLoadError), max_tries=5)
     async def scrape_match(self, tournament_id: int, match_id: int) -> Optional[Match]:  # pylint: disable=unsubscriptable-object
         match: Match = {
             "match_id": match_id,
@@ -393,12 +400,15 @@ class SaltybetClient:
                 return None
 
             async with self.session.get(f"https://www.saltybet.com/stats?match_id={match_id}") as resp:
+                resp.raise_for_status()
                 html = await resp.read()
                 tree = HTMLParser(html)
-                # Determine if Emptry
+
+                # Determine if Empty
                 rows = tree.css(".leaderboard > tbody:nth-child(2) > tr")
                 if not rows:
-                    return None
+                    raise FailedToLoadError
+
                 result_node = tree.css_first("#result")
                 # Winner
                 winner_class = result_node.css_first("span").attrs["class"]
@@ -422,7 +432,7 @@ class SaltybetClient:
                         match["blue_bets"] += amount
         return match
 
-    @backoff.on_predicate(backoff.expo, lambda x: x is None, max_tries=10)
+    @backoff.on_exception(backoff.expo, (aiohttp.ClientResponseError, FailedToLoadError), max_tries=5)
     async def scrape_compendium(self, tier: Tier) -> Optional[List[Fighter]]:  # pylint: disable=unsubscriptable-object
         fighters: List[Fighter] = []
         async with self._semaphore:
@@ -436,11 +446,13 @@ class SaltybetClient:
                 return None
 
             async with self.session.get(f"https://www.saltybet.com/compendium?tier={tier.value}") as resp:
+                resp.raise_for_status()
                 html = await resp.read()
                 tree = HTMLParser(html)
                 rows = tree.css("#tierlist > li")
                 if not rows:
                     return None
+
                 for row in rows:
                     fighter_id = row.css_first("a:nth-child(1)").attrs["href"].split("=")[-1]
                     fighters.append(
@@ -448,7 +460,7 @@ class SaltybetClient:
                     )
         return fighters
 
-    @backoff.on_predicate(backoff.expo, lambda x: x is None, max_tries=10)
+    @backoff.on_exception(backoff.expo, (aiohttp.ClientResponseError, FailedToLoadError), max_tries=5)
     async def scrape_fighter(self, tier: Tier, fighter_id: int) -> Optional[Fighter]:  # pylint: disable=unsubscriptable-object
         fighter: Fighter = {}
         async with self._semaphore:
@@ -462,6 +474,7 @@ class SaltybetClient:
                 return None
 
             async with self.session.get(f"https://www.saltybet.com/compendium?tier={tier.value}&character={fighter_id}") as resp:
+                resp.raise_for_status()
                 html = await resp.read()
                 tree = HTMLParser(html)
                 fighter = {
