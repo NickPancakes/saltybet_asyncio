@@ -7,19 +7,19 @@ from decimal import Decimal
 import json
 import logging
 from typing import List, Tuple, Optional
+from math import ceil
 
 import aiohttp
 import aiorun
-import backoff
 import pendulum
 import socketio
 from aiohttp.web import HTTPUnauthorized
 from selectolax.parser import HTMLParser  # pylint: disable=no-name-in-module
 
-from .types import Fighter, Match, Tournament, Upgrade, BettingSide, BettingStatus, GameMode, Tier, UpgradeType, Bettors, Bettor
+from .types import Fighter, Match, Tournament, Upgrade, BettingSide, MatchStatus, GameMode, Tier, UpgradeType, Bettors, Bettor
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("saltybet_asyncio")
 
 
 class FailedToLoadError(BaseException):
@@ -32,10 +32,16 @@ class SaltybetClient:
         # Connections
         self.session: aiohttp.ClientSession = None
         self.sio: socketio.AsyncClient = None
+
+        # Limit Management
         self._semaphore: asyncio.Semaphore = None
+        self._last_req: pendulum.DateTime = pendulum.now().subtract(minutes=1)
 
         # State
-        self._betting_status: BettingStatus = BettingStatus.UNKNOWN
+        self._logged_in: bool = False
+        self._last_login: pendulum.DateTime = pendulum.now().subtract(days=1)
+        self._illuminati: bool = False
+        self._betting_status: MatchStatus = MatchStatus.UNKNOWN
         self._game_mode: GameMode = GameMode.UNKNOWN
         self._tournament_id: int = 0
         self._match_id: int = 0
@@ -51,7 +57,7 @@ class SaltybetClient:
         # Triggers
         self._on_start_triggers: List[Callable[[], Awaitable[None]]] = []
         self._on_end_triggers: List[Callable[[], Awaitable[None]]] = []
-        self._on_betting_change_triggers: List[Callable[[BettingStatus, str, int, str, int], Awaitable[None]]] = []
+        self._on_betting_change_triggers: List[Callable[[MatchStatus, str, int, str, int], Awaitable[None]]] = []
         self._on_betting_open_triggers: List[Callable[[str, str], Awaitable[None]]] = []
         self._on_betting_locked_triggers: List[Callable[[[str, int, str, int], Awaitable[None]]]] = []
         self._on_betting_payout_triggers: List[Callable[[str, int, str, int], Awaitable[None]]] = []
@@ -71,14 +77,24 @@ class SaltybetClient:
             # SocketIO Client
             self.sio = socketio.AsyncClient()
 
-    # HTTP GET Request with limit message check.
+    # HTTP GET Request with limit message check. Only used for scraping and illuminati-required stats.
     async def _get_html(
-        self, url: str, wait_secs: int = 60, max_retries: int = 10
+        self, url: str, wait_between_requests: int = 4, wait_after_limit_hit: int = 180, max_retries: int = 10
     ) -> Optional[bytes]:  # pylint: disable=unsubscriptable-object
         out = None
         async with self._semaphore:
+            logger.debug(f"Attempting to get {url} without hitting limit...")
             for i in range(max_retries):
+                # Delay between each request
+                since_last_req = pendulum.now().diff(self._last_req).in_seconds()
+                logger.debug(f"{since_last_req} seconds since last request")
+                if since_last_req < wait_between_requests:
+                    wait_secs = wait_between_requests - since_last_req
+                    logger.debug(f"Waiting {wait_secs} seconds before next request...")
+                    await asyncio.sleep(wait_secs)
+
                 async with self.session.get(url) as resp:
+                    self._last_req = pendulum.now()
                     if not resp.ok:
                         logger.error(f"Response code {resp.status} from {resp.url}.")
                         break
@@ -88,8 +104,8 @@ class SaltybetClient:
                     # Check for limit reached message.
                     content = HTMLParser(html).css_first("#content")
                     if content is not None and "The maximum number of stats requests has been reached." in content.text(deep=False):
-                        logger.info(f"Maximum requests hit on attempt {i}. Waiting {wait_secs} seconds before retrying...")
-                        await asyncio.sleep(wait_secs)
+                        logger.info(f"Maximum requests hit on attempt {i}. Waiting {wait_after_limit_hit} seconds before retrying...")
+                        await asyncio.sleep(wait_after_limit_hit)
                         continue
 
                     out = html
@@ -101,34 +117,35 @@ class SaltybetClient:
     async def logged_in(self) -> bool:
         if self.email is None or self.password is None:
             return False
+        elif self._last_login.diff(pendulum.now()).in_minutes() < 30:
+            # Store logged in status for 30 minutes.
+            return self._logged_in
         logged_in = True
         async with self.session.get("https://www.saltybet.com/") as resp:
             if not resp.ok:
                 logger.error(f"Response code {resp.status} from {resp.url}.")
                 return False
             html = await resp.read()
-            selector = ".nav-text > a:nth-child(1) > span:nth-child(1)"
-            for node in HTMLParser(html).css(selector):
+            tree = HTMLParser(html)
+            # Check for lgoged in
+            for node in tree.css(".nav-text > a:nth-child(1) > span:nth-child(1)"):
                 if "Sign in" in node.text():
                     logged_in = False
                     break
+            # Check for illuminati
+            for node in tree.css(".navbar-text > span:nth-child(1)"):
+                if "goldtext" in node.attributes["class"]:
+                    self._illuminati = True
+                    break
+        self._logged_in = logged_in
         return logged_in
 
     @property
     async def illuminati(self) -> bool:
-        try:
-            await self._login()
-        except HTTPUnauthorized:
+        if not await self.logged_in:
             logger.error("Illuminati status cannot be checked without being logged in.")
             return False
-        illuminati = False
-        html = await self._get_html("https://www.saltybet.com/")
-        selector = ".navbar-text > span:nth-child(1)"
-        for node in HTMLParser(html).css(selector):
-            if "goldtext" in node.attributes["class"]:
-                illuminati = True
-                break
-        return illuminati
+        return self._illuminati
 
     @property
     async def balance(self) -> int:
@@ -212,8 +229,8 @@ class SaltybetClient:
 
     # Properties parsed from state.json
     @property
-    async def betting_status(self) -> BettingStatus:
-        if self._betting_status == BettingStatus.UNKNOWN:
+    async def betting_status(self) -> MatchStatus:
+        if self._betting_status == MatchStatus.UNKNOWN:
             await self._get_state(store=True)
         return self._betting_status
 
@@ -255,18 +272,17 @@ class SaltybetClient:
         await self._login()
 
     async def _login(self):
-        logged_in = await self.logged_in
-        if logged_in:
-            return
         if self.email is None or self.password is None:
             logger.error("Login Failed, credentials not provided.")
             raise HTTPUnauthorized
+        if await self.logged_in:
+            return
         data = {"email": self.email, "pword": self.password, "authenticate": "signin"}
         await self.session.post("https://www.saltybet.com/authenticate?signin=1", data=data)
-        logged_in = await self.logged_in
-        if not logged_in:
+        if not await self.logged_in:
             logger.error("Login Failed, check your credentials.")
             raise HTTPUnauthorized
+        self._last_login = pendulum.now()
 
     async def place_bet(self, side: BettingSide, wager: int):
         try:
@@ -379,7 +395,6 @@ class SaltybetClient:
             tournament_title = tournament_name.split("Tournament)")[1].lstrip()
         return tournament_mode, tournament_title
 
-    @backoff.on_exception(backoff.expo, (aiohttp.ClientResponseError, FailedToLoadError), max_tries=5)
     async def scrape_tournament(self, tournament_id: int) -> Optional[Tournament]:  # pylint: disable=unsubscriptable-object
         try:
             await self._login()
@@ -390,7 +405,7 @@ class SaltybetClient:
             logger.error("Tournament scraping only available with illuminati membership.")
             return None
 
-        tournament: Tournament = {"tournament_id": tournament_id, "mode": GameMode.UNKNOWN, "match_ids": []}
+        tournament: Tournament = {"tournament_id": tournament_id, "mode": GameMode.UNKNOWN, "matches": []}
         html = await self._get_html(f"https://www.saltybet.com/stats?tournament_id={tournament_id}")
         if html is None:
             logger.error("Failed to scrape Tournament")
@@ -412,18 +427,28 @@ class SaltybetClient:
 
         # Match IDs
         for row in rows:
-            match_link = row.css_first("td:nth-child(1) > a:nth-child(1)").attrs["href"]
-            match_id = match_link.split("=")[1]
-            tournament["match_ids"].append(match_id)
+            match: Match = {}
+            row_a = row.css_first("td:nth-child(1) > a:nth-child(1)")
+            match["match_id"] = row_a.attrs["href"].split("=")[1]
+            red_info, blue_info = row_a.text().split(",")
+            match["red_fighter"]["name"], match["red_bets"] = red_info.split(" - ")
+            match["blue_fighter"]["name"], match["blue_bets"] = blue_info.split(" - ")
+            row_span = row.css_first("td:nth-child(2) > span:nth-child(1)")
+            if row_span is None:
+                match["status"] = MatchStatus.DRAW
+            elif row_span.attrs["class"] == "redtext":
+                match["status"] = MatchStatus.RED_WINS
+            elif row_span.attrs["class"] == "bluetext":
+                match["status"] = MatchStatus.BLUE_WINS
+            tournament["matches"].append(match)
         return tournament
 
-    @backoff.on_exception(backoff.expo, (aiohttp.ClientResponseError, FailedToLoadError), max_tries=5)
     async def scrape_match(self, tournament_id: int, match_id: int) -> Optional[Match]:  # pylint: disable=unsubscriptable-object
         match: Match = {
             "match_id": match_id,
             "mode": GameMode.UNKNOWN,
-            "status": BettingStatus.UNKNOWN,
-            "tournament": {"tournament_id": tournament_id,},
+            "status": MatchStatus.UNKNOWN,
+            "tournament_id": tournament_id,
             "red_fighter": {},
             "blue_fighter": {},
             "red_bets": 0,
@@ -454,9 +479,9 @@ class SaltybetClient:
         # Winner
         winner_class = result_node.css_first("span").attrs["class"]
         if "redtext" in winner_class:
-            match["status"] = BettingStatus.RED_WINS
+            match["status"] = MatchStatus.RED_WINS
         elif "bluetext" in winner_class:
-            match["status"] = BettingStatus.BLUE_WINS
+            match["status"] = MatchStatus.BLUE_WINS
 
         # Title / Fighters
         title = result_node.text(deep=False).strip().replace("Winner:", "")
@@ -475,7 +500,6 @@ class SaltybetClient:
                 match["blue_bets"] += amount
         return match
 
-    @backoff.on_exception(backoff.expo, (aiohttp.ClientResponseError, FailedToLoadError), max_tries=5)
     async def scrape_compendium(self, tier: Tier) -> Optional[List[Fighter]]:  # pylint: disable=unsubscriptable-object
         fighters: List[Fighter] = []
         try:
@@ -504,7 +528,6 @@ class SaltybetClient:
             )
         return fighters
 
-    @backoff.on_exception(backoff.expo, (aiohttp.ClientResponseError, FailedToLoadError), max_tries=5)
     async def scrape_fighter(self, tier: Tier, fighter_id: int) -> Optional[Fighter]:  # pylint: disable=unsubscriptable-object
         fighter: Fighter = {}
         try:
@@ -572,17 +595,17 @@ class SaltybetClient:
 
         return fighter
 
-    def _status_to_BettingStatus(self, status: str) -> BettingStatus:
+    def _status_to_BettingStatus(self, status: str) -> MatchStatus:
         # Determine BettingStatus
-        out = BettingStatus.UNKNOWN
+        out = MatchStatus.UNKNOWN
         if status == "open":
-            out = BettingStatus.OPEN
+            out = MatchStatus.OPEN
         elif status == "locked":
-            out = BettingStatus.LOCKED
+            out = MatchStatus.LOCKED
         elif status == "1":
-            out = BettingStatus.RED_WINS
+            out = MatchStatus.RED_WINS
         elif status == "2":
-            out = BettingStatus.BLUE_WINS
+            out = MatchStatus.BLUE_WINS
         else:
             logger.debug(f"Unhandled status: {status}")
         return out
@@ -655,30 +678,30 @@ class SaltybetClient:
             logger.debug(f"Current mode changed to {game_mode.name}")
             await self._trigger_mode_change(game_mode)
 
-    async def _trigger_betting_change(self, betting_status: BettingStatus):
+    async def _trigger_betting_change(self, betting_status: MatchStatus):
         await asyncio.gather(
             *[
                 f(betting_status, self._red_fighter_name, self._red_bets, self._blue_fighter_name, self._blue_bets,)
                 for f in self._on_betting_change_triggers
             ]
         )
-        if betting_status == BettingStatus.OPEN:
+        if betting_status == MatchStatus.OPEN:
             await asyncio.gather(*[f(self._red_fighter_name, self._blue_fighter_name) for f in self._on_betting_open_triggers])
-        elif betting_status == BettingStatus.LOCKED:
+        elif betting_status == MatchStatus.LOCKED:
             await asyncio.gather(
                 *[
                     f(self._red_fighter_name, self._red_bets, self._blue_fighter_name, self._blue_bets)
                     for f in self._on_betting_locked_triggers
                 ]
             )
-        elif betting_status == BettingStatus.RED_WINS:
+        elif betting_status == MatchStatus.RED_WINS:
             await asyncio.gather(
                 *[
                     f(self._red_fighter_name, self._red_bets, self._blue_fighter_name, self._blue_bets)
                     for f in self._on_betting_payout_triggers
                 ]
             )
-        elif betting_status == BettingStatus.BLUE_WINS:
+        elif betting_status == MatchStatus.BLUE_WINS:
             await asyncio.gather(
                 *[
                     f(self._blue_fighter_name, self._blue_bets, self._red_fighter_name, self._red_bets)
@@ -707,8 +730,8 @@ class SaltybetClient:
         return func
 
     def on_betting_change(
-        self, func: Callable[[BettingStatus, str, int, str, int], Awaitable[None]]
-    ) -> Callable[[BettingStatus, str, int, str, int], Awaitable[None]]:
+        self, func: Callable[[MatchStatus, str, int, str, int], Awaitable[None]]
+    ) -> Callable[[MatchStatus, str, int, str, int], Awaitable[None]]:
         if func not in self._on_betting_change_triggers:
             self._on_betting_change_triggers.append(func)
         return func

@@ -8,7 +8,7 @@ from pprint import pformat
 from random import choice, randint
 
 import aiorun
-from saltybet_asyncio import BettingSide, BettingStatus, SaltybetClient
+from saltybet_asyncio import BettingSide, MatchStatus, SaltybetClient
 
 if __name__ == "__main__":
 
@@ -91,9 +91,9 @@ if __name__ == "__main__":
             bet_favor = winning_bets / losing_bets
             win_amount = ceil(bet_amount / bet_favor)
             betting_status = await client.betting_status
-            if betting_status == BettingStatus.BLUE_WINS and bet_side == BettingSide.BLUE:
+            if betting_status == MatchStatus.BLUE_WINS and bet_side == BettingSide.BLUE:
                 logger.info(f"You won ${win_amount}. Nice!")
-            elif betting_status == BettingStatus.RED_WINS and bet_side == BettingSide.RED:
+            elif betting_status == MatchStatus.RED_WINS and bet_side == BettingSide.RED:
                 logger.info(f"You won ${win_amount}. Ballin!")
             else:
                 logger.info(f"You're out ${bet_amount}. Sorry chump!")

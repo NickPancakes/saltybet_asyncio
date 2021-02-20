@@ -5,12 +5,13 @@ from enum import IntEnum
 from typing import Dict, TypedDict, List
 
 
-class BettingStatus(IntEnum):
+class MatchStatus(IntEnum):
     UNKNOWN = 0
     OPEN = 1
     LOCKED = 2
     RED_WINS = 3
     BLUE_WINS = 4
+    DRAW = 5
 
 
 class GameMode(IntEnum):
@@ -65,22 +66,22 @@ class Fighter(TypedDict, total=False):  # pylint: disable=inherit-non-class
     upgrades: List[Upgrade]
 
 
-class Tournament(TypedDict, total=False):  # pylint: disable=inherit-non-class
-    tournament_id: int
-    name: str
-    mode: GameMode
-    match_ids: List[int]
-
-
 class Match(TypedDict, total=False):  # pylint: disable=inherit-non-class
     match_id: int
-    tournament: Tournament
-    status: BettingStatus
+    tournament_id: int
+    status: MatchStatus
     mode: GameMode
     red_fighter: Fighter
     red_bets: int
     blue_fighter: Fighter
     blue_bets: int
+
+
+class Tournament(TypedDict, total=False):  # pylint: disable=inherit-non-class
+    tournament_id: int
+    name: str
+    mode: GameMode
+    matches: List[Match]
 
 
 class Bettor(TypedDict, total=False):  # pylint: disable=inherit-non-class

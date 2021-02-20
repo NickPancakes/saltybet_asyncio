@@ -3,7 +3,7 @@ __version__ = "0.1.0"
 
 from .client import SaltybetClient as SaltybetClient
 from .types import (
-    BettingStatus as BettingStatus,
+    MatchStatus as MatchStatus,
     GameMode as GameMode,
     BettingSide as BettingSide,
     Tier as Tier,
