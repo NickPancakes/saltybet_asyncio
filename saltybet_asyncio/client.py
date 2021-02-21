@@ -45,9 +45,9 @@ class SaltybetClient:
         self._game_mode: GameMode = GameMode.UNKNOWN
         self._tournament_id: int = 0
         self._match_id: int = 0
-        self._red_fighter_name: str = ""
+        self._red_team_name: str = ""
         self._red_bets: int = 0
-        self._blue_fighter_name: str = ""
+        self._blue_team_name: str = ""
         self._blue_bets: int = 0
 
         # Credentials
@@ -241,16 +241,16 @@ class SaltybetClient:
         return self._game_mode
 
     @property
-    async def red_fighter(self) -> str:
-        if self._red_fighter_name == "":
+    async def red_team_name(self) -> str:
+        if self._red_team_name == "":
             await self._get_state(store=True)
-        return self._red_fighter_name
+        return self._red_team_name
 
     @property
-    async def blue_fighter(self) -> str:
-        if self._blue_fighter_name == "":
+    async def blue_team_name(self) -> str:
+        if self._blue_team_name == "":
             await self._get_state(store=True)
-        return self._blue_fighter_name
+        return self._blue_team_name
 
     @property
     async def red_bets(self) -> int:
@@ -308,40 +308,56 @@ class SaltybetClient:
             else:
                 logger.debug("Bet placed successfully")
 
-    async def get_bettors(self) -> Optional[Bettors]:  # pylint: disable=unsubscriptable-object
-        """Fetches data from zdata.json"""
-        bettors: Bettors = {"match": {"red_fighter": {}, "blue_fighter": {}}, "bettors": []}
+    async def _get_raw_zdata_json(self) -> Optional[dict]:  # pylint: disable=unsubscriptable-object
+        jresp: dict = {}
         async with self.session.get("https://www.saltybet.com/zdata.json") as resp:
             html = await resp.read()
             if html != "":
                 jresp = await resp.json(content_type="text/html")
-                bettors["match"]["status"] = self._status_to_BettingStatus(jresp["status"])
-                bettors["match"]["red_fighter"]["name"] = jresp["p1name"]
-                bettors["match"]["blue_fighter"]["name"] = jresp["p1name"]
-                bettors["match"]["red_bets"] = int(jresp["p1total"].replace(",", ""))
-                bettors["match"]["blue_bets"] = int(jresp["p2total"].replace(",", ""))
-                for k, v in jresp.items():
-                    if k in ["p1name", "p2name", "p1total", "p2total", "status", "alert", "x", "remaining"]:
-                        continue
-                    bettor: Bettor = {"bettor_id": int(k), "username": v["n"], "balance": int(v["b"])}
-                    if "p" in v:
-                        bettor["bet_side"] = BettingSide(int(v["p"]))
-                    if "w" in v:
-                        bettor["wager"] = int(v["w"])
-                    if "r" in v:
-                        if len(v["r"]) > 3:
-                            bettor["avatar"] = f"https://www.gravatar.com/avatar/{v['r']}"
-                        else:
-                            bettor["avatar"] = f"https://www.saltybet.com/images/ranksmall/rank{v['r']}.png"
-                    if "g" in v:
-                        bettor["illuminati"] = v["g"] == "1"
-                    if "c" in v and v["c"] != "0" and "," in v["c"]:
-                        bettor["color_r"], bettor["color_g"], bettor["color_b"] = v["c"].split(",")
-                    bettors["bettors"].append(bettor)
+            else:
+                return None
+        return jresp
+
+    async def get_bettors(self) -> Optional[Bettors]:  # pylint: disable=unsubscriptable-object
+        """Fetches data from zdata.json"""
+        jresp = await self._get_raw_zdata_json()
+        if jresp is None:
+            return None
+        bettors: Bettors = {"match": {"red_fighters": [], "blue_fighters": []}, "bettors": []}
+        bettors["match"]["status"] = self._status_to_BettingStatus(jresp["status"])
+        bettors["match"]["red_team_name"] = jresp["p1name"]
+        if not jresp["p1name"].startswith("Team "):
+            red_fighter: Fighter = {"name": jresp["p1name"]}
+            bettors["match"]["red_fighters"] = [red_fighter]
+        if not jresp["p2name"].startswith("Team "):
+            blue_fighter: Fighter = {"name": jresp["p2name"]}
+            bettors["match"]["blue_fighters"] = [blue_fighter]
+        bettors["match"]["blue_team_name"] = jresp["p2name"]
+        bettors["match"]["red_bets"] = int(jresp["p1total"].replace(",", ""))
+        bettors["match"]["blue_bets"] = int(jresp["p2total"].replace(",", ""))
+        for k, v in jresp.items():
+            if k in ["p1name", "p2name", "p1total", "p2total", "status", "alert", "x", "remaining"]:
+                continue
+            elif "n" not in v or "b" not in v:
+                continue
+            bettor: Bettor = {"bettor_id": int(k), "username": v["n"], "balance": int(v["b"])}
+            if "p" in v:
+                bettor["bet_side"] = BettingSide(int(v["p"]))
+            if "w" in v:
+                bettor["wager"] = int(v["w"])
+            if "r" in v:
+                if len(v["r"]) > 3:
+                    bettor["avatar"] = f"https://www.gravatar.com/avatar/{v['r']}"
+                else:
+                    bettor["avatar"] = f"https://www.saltybet.com/images/ranksmall/rank{v['r']}.png"
+            if "g" in v:
+                bettor["illuminati"] = v["g"] == "1"
+            if "c" in v and v["c"] != "0" and "," in v["c"]:
+                bettor["color_r"], bettor["color_g"], bettor["color_b"] = v["c"].split(",")
+            bettors["bettors"].append(bettor)
         return bettors
 
-    async def get_match_stats(self) -> Optional[Match]:  # pylint: disable=unsubscriptable-object
-        """Fetches data from ajax_get_stats.php"""
+    async def _get_raw_ajax_get_stats_php(self) -> Optional[dict]:  # pylint: disable=unsubscriptable-object
         try:
             await self._login()
         except HTTPUnauthorized:
@@ -350,11 +366,32 @@ class SaltybetClient:
         if not await self.illuminati:
             logger.error("Match stats only available with illuminati membership.")
             return None
-        stats: Match = {}
-        html = await self._get_html("https://www.saltybet.com/ajax_get_stats.php")
-        if html is not None and html != "":
-            jresp = json.loads(html)
-            red_fighter: Fighter = {
+
+        jresp: dict = {}
+        async with self.session.get("https://www.saltybet.com/ajax_get_stats.php") as resp:
+            jresp = await resp.json(content_type="text/html")
+        return jresp
+
+    async def get_match_stats(self) -> Optional[Match]:  # pylint: disable=unsubscriptable-object
+        """Fetches data from ajax_get_stats.php"""
+        jresp = await self._get_raw_ajax_get_stats_php()
+        if jresp is None:
+            return None
+        stats: Match = {"red_fighters": [], "blue_fighters": []}
+        red_1: Fighter = {}
+        if " / " in jresp["p1name"]:
+            red_2: Fighter = {}
+            red_1["name"], red_2["name"] = jresp["p1name"].split(" / ")
+            red_1["author"], red_2["author"] = jresp["p1author"].split(" / ")
+            red_1["tier"], red_2["tier"] = [Tier[tier] for tier in jresp["p1tier"].split(" / ")]
+            red_1["life"], red_2["life"] = jresp["p1life"].split(" / ")
+            red_1["meter"], red_2["meter"] = jresp["p1meter"].split(" / ")
+            red_1["palette"], red_2["palette"] = jresp["p1palette"].split(" / ")
+            red_1["total_matches"], red_2["total_matches"] = [int(tm) for tm in jresp["p1totalmatches"].split(" / ")]
+            red_1["win_rate"], red_2["win_rate"] = [(Decimal(wr) / Decimal(100)) for wr in jresp["p1winrate"].split(" / ")]
+            stats["red_fighters"] = [red_1, red_2]
+        else:
+            red_1 = {
                 "name": jresp["p1name"],
                 "author": jresp["p1author"],
                 "tier": Tier[jresp["p1tier"]],
@@ -364,8 +401,22 @@ class SaltybetClient:
                 "total_matches": int(jresp["p1totalmatches"]),
                 "win_rate": Decimal(jresp["p1winrate"]) / Decimal(100),
             }
-            stats["red_fighter"] = red_fighter
-            blue_fighter: Fighter = {
+            stats["red_fighters"] = [red_1]
+
+        blue_1: Fighter = {}
+        if " / " in jresp["p2name"]:
+            blue_2: Fighter = {}
+            blue_1["name"], blue_2["name"] = jresp["p2name"].split(" / ")
+            blue_1["author"], blue_2["author"] = jresp["p2author"].split(" / ")
+            blue_1["tier"], blue_2["tier"] = [Tier[tier] for tier in jresp["p2tier"].split(" / ")]
+            blue_1["life"], blue_2["life"] = jresp["p2life"].split(" / ")
+            blue_1["meter"], blue_2["meter"] = jresp["p2meter"].split(" / ")
+            blue_1["palette"], blue_2["palette"] = jresp["p2palette"].split(" / ")
+            blue_1["total_matches"], blue_2["total_matches"] = [int(tm) for tm in jresp["p2totalmatches"].split(" / ")]
+            blue_1["win_rate"], blue_2["win_rate"] = [(Decimal(wr) / Decimal(100)) for wr in jresp["p2winrate"].split(" / ")]
+            stats["blue_fighters"] = [blue_1, blue_2]
+        else:
+            blue_1 = {
                 "name": jresp["p2name"],
                 "author": jresp["p2author"],
                 "tier": Tier[jresp["p2tier"]],
@@ -375,7 +426,7 @@ class SaltybetClient:
                 "total_matches": int(jresp["p2totalmatches"]),
                 "win_rate": Decimal(jresp["p2winrate"]) / Decimal(100),
             }
-            stats["blue_fighter"] = blue_fighter
+            stats["blue_fighters"] = [blue_1]
         return stats
 
     # Scraper Functions
@@ -427,12 +478,17 @@ class SaltybetClient:
 
         # Match IDs
         for row in rows:
-            match: Match = {}
+            match: Match = {"red_fighters": [], "blue_fighters": []}
             row_a = row.css_first("td:nth-child(1) > a:nth-child(1)")
             match["match_id"] = row_a.attrs["href"].split("=")[1]
+            match["mode"] = tournament["mode"]
             red_info, blue_info = row_a.text().split(",")
-            match["red_fighter"]["name"], match["red_bets"] = red_info.split(" - ")
-            match["blue_fighter"]["name"], match["blue_bets"] = blue_info.split(" - ")
+            match["red_team_name"], match["red_bets"] = red_info.split(" - ")
+            if not match["red_team_name"].startswith("Team "):
+                match["red_fighters"] = [{"name": match["red_team_name"]}]
+            match["blue_team_name"], match["blue_bets"] = blue_info.split(" - ")
+            if not match["blue_team_name"].startswith("Team "):
+                match["blue_fighters"] = [{"name": match["blue_team_name"]}]
             row_span = row.css_first("td:nth-child(2) > span:nth-child(1)")
             if row_span is None:
                 match["status"] = MatchStatus.DRAW
@@ -449,8 +505,6 @@ class SaltybetClient:
             "mode": GameMode.UNKNOWN,
             "status": MatchStatus.UNKNOWN,
             "tournament_id": tournament_id,
-            "red_fighter": {},
-            "blue_fighter": {},
             "red_bets": 0,
             "blue_bets": 0,
         }
@@ -485,8 +539,14 @@ class SaltybetClient:
 
         # Title / Fighters
         title = result_node.text(deep=False).strip().replace("Winner:", "")
-        match["red_fighter"]["name"], remaining_title = title.split(" vs ")
-        match["blue_fighter"]["name"], remaining_title = remaining_title.split(" at ")
+        red_team, remaining_title = title.split(" vs ")
+        match["red_team_name"] = red_team
+        if not red_team.startswith("Team"):
+            match["red_fighters"] = [{"name": red_team}]
+        blue_team, remaining_title = remaining_title.split(" at ")
+        match["blue_team_name"] = blue_team
+        if not blue_team.startswith("Team"):
+            match["blue_fighters"] = [{"name": blue_team}]
         match["mode"], _ = self._split_tournament_name_and_mode(remaining_title)
 
         # Bets
@@ -611,15 +671,16 @@ class SaltybetClient:
         return out
 
     # State Parsing
-    async def _get_state(self, store=False) -> Match:
+    async def _get_raw_state_json(self) -> dict:
         state = {}
         async with self.session.get("https://www.saltybet.com/state.json") as resp:
             state = await resp.json(content_type="text/html")
+        return state
 
-        out: Match = {
-            "red_fighter": {},
-            "blue_fighter": {},
-        }
+    async def _get_state(self, store=False) -> Match:
+        state = await self._get_raw_state_json()
+
+        out: Match = {}
 
         out["status"] = self._status_to_BettingStatus(state["status"])
 
@@ -638,16 +699,24 @@ class SaltybetClient:
         else:
             logger.debug(f"Unhandled alert: {state['alert']}")
 
-        out["red_fighter"]["name"] = state["p1name"]
-        out["blue_fighter"]["name"] = state["p2name"]
+        p1name = state["p1name"]
+        if not p1name.startswith("Team "):
+            out["red_fighters"] = [{"name": p1name}]
+        out["red_team_name"] = p1name
+
+        p2name = state["p2name"]
+        if not p2name.startswith("Team "):
+            out["blue_fighters"] = [{"name": p2name}]
+        out["blue_team_name"] = p1name
+
         out["red_bets"] = int(state["p1total"].replace(",", ""))
         out["blue_bets"] = int(state["p2total"].replace(",", ""))
 
         if store:
             self._betting_status = out["status"]
             self._game_mode = out["mode"]
-            self._red_fighter_name = out["red_fighter"]["name"]
-            self._blue_fighter_name = out["blue_fighter"]["name"]
+            self._red_team_name = out["red_team_name"]
+            self._blue_team_name = out["blue_team_name"]
             self._red_bets = out["red_bets"]
             self._blue_bets = out["blue_bets"]
 
@@ -660,10 +729,10 @@ class SaltybetClient:
         state = await self._get_state()
 
         # Update only fighters/bets
-        self._red_fighter_name = state["red_fighter"]["name"]
-        self._blue_fighter_name = state["blue_fighter"]["name"]
         self._red_bets = state["red_bets"]
         self._blue_bets = state["blue_bets"]
+        self._red_team_name = state["red_team_name"]
+        self._blue_team_name = state["blue_team_name"]
 
         # Fire Triggers
         betting_status = state["status"]
@@ -681,32 +750,23 @@ class SaltybetClient:
     async def _trigger_betting_change(self, betting_status: MatchStatus):
         await asyncio.gather(
             *[
-                f(betting_status, self._red_fighter_name, self._red_bets, self._blue_fighter_name, self._blue_bets,)
+                f(betting_status, self._red_team_name, self._red_bets, self._blue_team_name, self._blue_bets,)
                 for f in self._on_betting_change_triggers
             ]
         )
         if betting_status == MatchStatus.OPEN:
-            await asyncio.gather(*[f(self._red_fighter_name, self._blue_fighter_name) for f in self._on_betting_open_triggers])
+            await asyncio.gather(*[f(self._red_team_name, self._blue_team_name) for f in self._on_betting_open_triggers])
         elif betting_status == MatchStatus.LOCKED:
             await asyncio.gather(
-                *[
-                    f(self._red_fighter_name, self._red_bets, self._blue_fighter_name, self._blue_bets)
-                    for f in self._on_betting_locked_triggers
-                ]
+                *[f(self._red_team_name, self._red_bets, self._blue_team_name, self._blue_bets) for f in self._on_betting_locked_triggers]
             )
         elif betting_status == MatchStatus.RED_WINS:
             await asyncio.gather(
-                *[
-                    f(self._red_fighter_name, self._red_bets, self._blue_fighter_name, self._blue_bets)
-                    for f in self._on_betting_payout_triggers
-                ]
+                *[f(self._red_team_name, self._red_bets, self._blue_team_name, self._blue_bets) for f in self._on_betting_payout_triggers]
             )
         elif betting_status == MatchStatus.BLUE_WINS:
             await asyncio.gather(
-                *[
-                    f(self._blue_fighter_name, self._blue_bets, self._red_fighter_name, self._red_bets)
-                    for f in self._on_betting_payout_triggers
-                ]
+                *[f(self._blue_team_name, self._blue_bets, self._red_team_name, self._red_bets) for f in self._on_betting_payout_triggers]
             )
 
     async def _trigger_mode_change(self, game_mode: GameMode):

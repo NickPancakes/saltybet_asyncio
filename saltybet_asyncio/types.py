@@ -71,9 +71,11 @@ class Match(TypedDict, total=False):  # pylint: disable=inherit-non-class
     tournament_id: int
     status: MatchStatus
     mode: GameMode
-    red_fighter: Fighter
+    red_team_name: str
+    red_fighters: List[Fighter]
     red_bets: int
-    blue_fighter: Fighter
+    blue_team_name: str
+    blue_fighters: List[Fighter]
     blue_bets: int
 
 
