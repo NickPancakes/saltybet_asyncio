@@ -21,7 +21,7 @@ class GameMode(IntEnum):
     EXHIBITION = 3
 
 
-class BettingSide(IntEnum):
+class SideColor(IntEnum):
     UNKNOWN = 0
     RED = 1
     BLUE = 2
@@ -91,7 +91,7 @@ class Bettor(TypedDict, total=False):  # pylint: disable=inherit-non-class
     username: str
     balance: int
     wager: int
-    bet_side: BettingSide
+    bet_side: SideColor
     illuminati: bool
     avatar: str
     color_r: str

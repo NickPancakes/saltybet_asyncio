@@ -16,7 +16,7 @@ import socketio
 from aiohttp.web import HTTPUnauthorized
 from selectolax.parser import HTMLParser  # pylint: disable=no-name-in-module
 
-from .types import Fighter, Match, Tournament, Upgrade, BettingSide, MatchStatus, GameMode, Tier, UpgradeType, Bettors, Bettor
+from .types import Fighter, Match, Tournament, Upgrade, SideColor, MatchStatus, GameMode, Tier, UpgradeType, Bettors, Bettor
 
 
 logger = logging.getLogger("saltybet_asyncio")
@@ -284,7 +284,7 @@ class SaltybetClient:
             raise HTTPUnauthorized
         self._last_login = pendulum.now()
 
-    async def place_bet(self, side: BettingSide, wager: int):
+    async def place_bet(self, side: SideColor, wager: int):
         try:
             await self._login()
         except HTTPUnauthorized:
@@ -296,9 +296,9 @@ class SaltybetClient:
         if wager > balance:
             wager = balance
         player = None
-        if side == BettingSide.RED:
+        if side == SideColor.RED:
             player = "player1"
-        elif side == BettingSide.BLUE:
+        elif side == SideColor.BLUE:
             player = "player2"
         data = {"selectedplayer": player, "wager": wager}
         async with self.session.post("https://www.saltybet.com/ajax_place_bet.php", data=data) as resp:
@@ -342,7 +342,7 @@ class SaltybetClient:
                 continue
             bettor: Bettor = {"bettor_id": int(k), "username": v["n"], "balance": int(v["b"])}
             if "p" in v:
-                bettor["bet_side"] = BettingSide(int(v["p"]))
+                bettor["bet_side"] = SideColor(int(v["p"]))
             if "w" in v:
                 bettor["wager"] = int(v["w"])
             if "r" in v:

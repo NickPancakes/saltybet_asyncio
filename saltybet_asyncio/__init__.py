@@ -5,7 +5,7 @@ from .client import SaltybetClient as SaltybetClient
 from .types import (
     MatchStatus as MatchStatus,
     GameMode as GameMode,
-    BettingSide as BettingSide,
+    SideColor as SideColor,
     Tier as Tier,
     UpgradeType as UpgradeType,
     Upgrade as Upgrade,

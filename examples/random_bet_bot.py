@@ -6,12 +6,9 @@ from locale import LC_ALL, setlocale
 from math import ceil
 from pprint import pformat
 from random import choice, randint
-from typing import List
-from pathlib import Path
-import json
 
 import aiorun
-from saltybet_asyncio import BettingSide, MatchStatus, SaltybetClient, GameMode
+from saltybet_asyncio import SideColor, MatchStatus, SaltybetClient
 
 if __name__ == "__main__":
 
@@ -39,7 +36,7 @@ if __name__ == "__main__":
 
     # Bet Detail Storage
     bet_amount = 0
-    bet_side = BettingSide.UNKNOWN
+    bet_side = SideColor.UNKNOWN
 
     # Event Subscriptions
     @client.on_start
@@ -63,12 +60,12 @@ if __name__ == "__main__":
             logger.info(f"Balance: ${balance:n}")
             if args.max_bet and args.min_bet:
                 # Bet random amount on a random side
-                bet_side = choice([BettingSide.RED, BettingSide.BLUE])
+                bet_side = choice([SideColor.RED, SideColor.BLUE])
                 bet_amount = randint(args.min_bet, args.max_bet)
                 if bet_amount > balance:
                     bet_amount = balance
                 await client.place_bet(bet_side, bet_amount)
-                fighter_name = red_team_name if bet_side == BettingSide.RED else blue_team_name
+                fighter_name = red_team_name if bet_side == SideColor.RED else blue_team_name
                 logger.info(f"Bet ${bet_amount} on '{fighter_name}' on the {bet_side.name} side.")
         logger.info(f"Bettors:\n{pformat(await client.get_bettors())}")
 
@@ -96,9 +93,9 @@ if __name__ == "__main__":
             bet_favor = winning_bets / losing_bets
             win_amount = ceil(bet_amount / bet_favor)
             betting_status = await client.betting_status
-            if betting_status == MatchStatus.BLUE_WINS and bet_side == BettingSide.BLUE:
+            if betting_status == MatchStatus.BLUE_WINS and bet_side == SideColor.BLUE:
                 logger.info(f"You won ${win_amount}. Nice!")
-            elif betting_status == MatchStatus.RED_WINS and bet_side == BettingSide.RED:
+            elif betting_status == MatchStatus.RED_WINS and bet_side == SideColor.RED:
                 logger.info(f"You won ${win_amount}. Ballin!")
             else:
                 logger.info(f"You're out ${bet_amount}. Sorry chump!")
