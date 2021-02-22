@@ -476,19 +476,35 @@ class SaltybetClient:
         if tournament["mode"] == GameMode.UNKNOWN:
             return None
 
-        # Match IDs
+        # Matches
         for row in rows:
-            match: Match = {"red_fighters": [], "blue_fighters": []}
+            match: Match = {
+                "mode": GameMode.UNKNOWN,
+                "status": MatchStatus.UNKNOWN,
+                "tournament_id": tournament_id,
+                "red_fighters": [],
+                "blue_fighters": [],
+                "red_bets": 0,
+                "blue_bets": 0,
+            }
+
             row_a = row.css_first("td:nth-child(1) > a:nth-child(1)")
             match["match_id"] = row_a.attrs["href"].split("=")[1]
             match["mode"] = tournament["mode"]
+
             red_info, blue_info = row_a.text().split(",")
-            match["red_team_name"], match["red_bets"] = red_info.split(" - ")
+            red_team_name, red_bets = red_info.split(" - ")
+            match["red_team_name"] = red_team_name.strip()
             if not match["red_team_name"].startswith("Team "):
                 match["red_fighters"] = [{"name": match["red_team_name"]}]
-            match["blue_team_name"], match["blue_bets"] = blue_info.split(" - ")
+            match["red_bets"] = int(red_bets.replace("$", ""))
+
+            blue_team_name, blue_bets = blue_info.split(" - ")
+            match["blue_team_name"] = blue_team_name.strip()
             if not match["blue_team_name"].startswith("Team "):
                 match["blue_fighters"] = [{"name": match["blue_team_name"]}]
+            match["blue_bets"] = int(blue_bets.replace("$", ""))
+
             row_span = row.css_first("td:nth-child(2) > span:nth-child(1)")
             if row_span is None:
                 match["status"] = MatchStatus.DRAW
@@ -496,18 +512,11 @@ class SaltybetClient:
                 match["status"] = MatchStatus.RED_WINS
             elif row_span.attrs["class"] == "bluetext":
                 match["status"] = MatchStatus.BLUE_WINS
+
             tournament["matches"].append(match)
         return tournament
 
     async def scrape_match(self, tournament_id: int, match_id: int) -> Optional[Match]:  # pylint: disable=unsubscriptable-object
-        match: Match = {
-            "match_id": match_id,
-            "mode": GameMode.UNKNOWN,
-            "status": MatchStatus.UNKNOWN,
-            "tournament_id": tournament_id,
-            "red_bets": 0,
-            "blue_bets": 0,
-        }
         try:
             await self._login()
         except HTTPUnauthorized:
@@ -529,6 +538,15 @@ class SaltybetClient:
             logger.error("Failed to scrape Match")
             return None
 
+        match: Match = {
+            "match_id": match_id,
+            "mode": GameMode.UNKNOWN,
+            "status": MatchStatus.UNKNOWN,
+            "tournament_id": tournament_id,
+            "red_bets": 0,
+            "blue_bets": 0,
+        }
+
         result_node = tree.css_first("#result")
         # Winner
         winner_class = result_node.css_first("span").attrs["class"]
@@ -541,11 +559,11 @@ class SaltybetClient:
         title = result_node.text(deep=False).strip().replace("Winner:", "")
         red_team, remaining_title = title.split(" vs ")
         match["red_team_name"] = red_team
-        if not red_team.startswith("Team"):
+        if not red_team.startswith("Team "):
             match["red_fighters"] = [{"name": red_team}]
         blue_team, remaining_title = remaining_title.split(" at ")
         match["blue_team_name"] = blue_team
-        if not blue_team.startswith("Team"):
+        if not blue_team.startswith("Team "):
             match["blue_fighters"] = [{"name": blue_team}]
         match["mode"], _ = self._split_tournament_name_and_mode(remaining_title)
 
