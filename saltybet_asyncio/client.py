@@ -4,10 +4,9 @@
 import asyncio
 from collections.abc import Callable, Awaitable
 from decimal import Decimal
-import json
 import logging
 from typing import List, Tuple, Optional
-from math import ceil
+import re
 
 import aiohttp
 import aiorun
@@ -36,6 +35,8 @@ class SaltybetClient:
         # Limit Management
         self._semaphore: asyncio.Semaphore = None
         self._last_req: pendulum.DateTime = pendulum.now().subtract(minutes=1)
+
+        self._tournament_regex = re.compile(r"(.+) - \$(\d+), (.+) - \$(\d+)")
 
         # State
         self._logged_in: bool = False
@@ -79,7 +80,7 @@ class SaltybetClient:
 
     # HTTP GET Request with limit message check. Only used for scraping and illuminati-required stats.
     async def _get_html(
-        self, url: str, wait_between_requests: int = 4, wait_after_limit_hit: int = 180, max_retries: int = 10
+        self, url: str, wait_between_requests: int = 5, wait_after_limit_hit: int = 180, max_retries: int = 10
     ) -> Optional[bytes]:  # pylint: disable=unsubscriptable-object
         out = None
         async with self._semaphore:
@@ -492,18 +493,17 @@ class SaltybetClient:
             match["match_id"] = row_a.attrs["href"].split("=")[1]
             match["mode"] = tournament["mode"]
 
-            red_info, blue_info = row_a.text().split(",")
-            red_team_name, red_bets = red_info.split(" - ")
-            match["red_team_name"] = red_team_name.strip()
-            if not match["red_team_name"].startswith("Team "):
-                match["red_fighters"] = [{"name": match["red_team_name"]}]
-            match["red_bets"] = int(red_bets.replace("$", ""))
-
-            blue_team_name, blue_bets = blue_info.split(" - ")
-            match["blue_team_name"] = blue_team_name.strip()
-            if not match["blue_team_name"].startswith("Team "):
-                match["blue_fighters"] = [{"name": match["blue_team_name"]}]
-            match["blue_bets"] = int(blue_bets.replace("$", ""))
+            re_match = self._tournament_regex.match(row_a.text())
+            if re_match:
+                red_team_name, red_bets, blue_team_name, blue_bets = re_match.groups()
+                match["red_team_name"] = red_team_name.strip()
+                if not match["red_team_name"].startswith("Team "):
+                    match["red_fighters"] = [{"name": match["red_team_name"]}]
+                match["red_bets"] = int(red_bets)
+                match["blue_team_name"] = blue_team_name.strip()
+                if not match["blue_team_name"].startswith("Team "):
+                    match["blue_fighters"] = [{"name": match["blue_team_name"]}]
+                match["blue_bets"] = int(blue_bets)
 
             row_span = row.css_first("td:nth-child(2) > span:nth-child(1)")
             if row_span is None:
