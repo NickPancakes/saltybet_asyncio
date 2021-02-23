@@ -6,6 +6,7 @@ from locale import LC_ALL, setlocale
 from math import ceil
 from pprint import pformat
 from random import choice, randint
+from saltybet_asyncio.types import Match
 
 import aiorun
 from saltybet_asyncio import SideColor, MatchStatus, SaltybetClient
@@ -48,7 +49,7 @@ if __name__ == "__main__":
             logger.info("No credentails provided, no betting will take place.")
 
     @client.on_betting_open
-    async def print_fighters(red_team_name: str, blue_team_name: str):
+    async def print_fighters(status: MatchStatus, red_team_name: str, red_bets: int, blue_team_name: str, blue_bets: int):
         global bet_amount
         global bet_side
         logger.info(f"Bets Open: {red_team_name:^16} vs {blue_team_name:^16}")
@@ -69,10 +70,8 @@ if __name__ == "__main__":
                 logger.info(f"Bet ${bet_amount} on '{fighter_name}' on the {bet_side.name} side.")
         logger.info(f"Bettors:\n{pformat(await client.get_bettors())}")
 
-    state_i = 0
-
     @client.on_betting_locked
-    async def print_ratio(red_team_name: str, red_bets: int, blue_team_name: str, blue_bets: int):
+    async def print_ratio(status: MatchStatus, red_team_name: str, red_bets: int, blue_team_name: str, blue_bets: int):
         logger.info(f"Bets Locked: {red_team_name:>16} - ${red_bets:<16n} vs {blue_team_name:>16} - ${blue_bets:<16n}")
         if red_bets > blue_bets:
             bet_favor = red_bets / blue_bets
@@ -85,19 +84,31 @@ if __name__ == "__main__":
         logger.info(f"Bettors:\n{pformat(await client.get_bettors())}")
 
     @client.on_betting_payout
-    async def print_win(winning_team_name: str, winning_bets: int, losing_team_name: str, losing_bets: int):
+    async def print_win(status: MatchStatus, red_team_name: str, red_bets: int, blue_team_name: str, blue_bets: int):
         global bet_amount
         global bet_side
+
+        won = False
+        if status == MatchStatus.RED_WINS:
+            winning_team_name = red_team_name
+            winning_bets = red_bets
+            losing_bets = blue_bets
+            if bet_side == SideColor.RED:
+                won = True
+        elif status == MatchStatus.BLUE_WINS:
+            winning_team_name = blue_team_name
+            winning_bets = blue_bets
+            losing_bets = red_bets
+            if bet_side == SideColor.BLUE:
+                won = True
+
         logger.info(f"Match Complete: {winning_team_name} wins!")
         if bet_amount > 0:
             bet_favor = winning_bets / losing_bets
             win_amount = ceil(bet_amount / bet_favor)
-            betting_status = await client.betting_status
-            if betting_status == MatchStatus.BLUE_WINS and bet_side == SideColor.BLUE:
+            if won:
                 logger.info(f"You won ${win_amount}. Nice!")
-            elif betting_status == MatchStatus.RED_WINS and bet_side == SideColor.RED:
-                logger.info(f"You won ${win_amount}. Ballin!")
             else:
-                logger.info(f"You're out ${bet_amount}. Sorry chump!")
+                logger.info(f"You're out ${bet_amount}. Dang!")
 
     aiorun.run(client.run_forever())

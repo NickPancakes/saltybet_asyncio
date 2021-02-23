@@ -36,7 +36,7 @@ class SaltybetClient:
         self._semaphore: asyncio.Semaphore = None
         self._last_req: pendulum.DateTime = pendulum.now().subtract(minutes=1)
 
-        self._tournament_regex = re.compile(r"(.+) - \$(\d+), (.+) - \$(\d+)")
+        self._tournament_regex = re.compile(r"(.+) - \$(\d*), (.+) - \$(\d*)")
 
         # State
         self._logged_in: bool = False
@@ -50,6 +50,7 @@ class SaltybetClient:
         self._red_bets: int = 0
         self._blue_team_name: str = ""
         self._blue_bets: int = 0
+        self._matches_left_in_mode: int = 0
 
         # Credentials
         self.email: Optional[str] = None
@@ -59,13 +60,13 @@ class SaltybetClient:
         self._on_start_triggers: List[Callable[[], Awaitable[None]]] = []
         self._on_end_triggers: List[Callable[[], Awaitable[None]]] = []
         self._on_betting_change_triggers: List[Callable[[MatchStatus, str, int, str, int], Awaitable[None]]] = []
-        self._on_betting_open_triggers: List[Callable[[str, str], Awaitable[None]]] = []
-        self._on_betting_locked_triggers: List[Callable[[[str, int, str, int], Awaitable[None]]]] = []
-        self._on_betting_payout_triggers: List[Callable[[str, int, str, int], Awaitable[None]]] = []
+        self._on_betting_open_triggers: List[Callable[[MatchStatus, str, int, str, int], Awaitable[None]]] = []
+        self._on_betting_locked_triggers: List[Callable[[MatchStatus, str, int, str, int], Awaitable[None]]] = []
+        self._on_betting_payout_triggers: List[Callable[[MatchStatus, str, int, str, int], Awaitable[None]]] = []
         self._on_mode_change_triggers: List[Callable[[GameMode], Awaitable[None]]] = []
-        self._on_mode_tournament_triggers: List[Callable[[], Awaitable[None]]] = []
-        self._on_mode_exhibition_triggers: List[Callable[[], Awaitable[None]]] = []
-        self._on_mode_matchmaking_triggers: List[Callable[[], Awaitable[None]]] = []
+        self._on_mode_tournament_triggers: List[Callable[[GameMode], Awaitable[None]]] = []
+        self._on_mode_exhibition_triggers: List[Callable[[GameMode], Awaitable[None]]] = []
+        self._on_mode_matchmaking_triggers: List[Callable[[GameMode], Awaitable[None]]] = []
 
     async def _init(self):
         if self._semaphore is None:
@@ -80,7 +81,7 @@ class SaltybetClient:
 
     # HTTP GET Request with limit message check. Only used for scraping and illuminati-required stats.
     async def _get_html(
-        self, url: str, wait_between_requests: int = 5, wait_after_limit_hit: int = 180, max_retries: int = 10
+        self, url: str, wait_between_requests: float = 5.0, wait_after_limit_hit: float = 180.0, max_retries: int = 10
     ) -> Optional[bytes]:  # pylint: disable=unsubscriptable-object
         out = None
         async with self._semaphore:
@@ -325,7 +326,7 @@ class SaltybetClient:
         if jresp is None:
             return None
         bettors: Bettors = {"match": {"red_fighters": [], "blue_fighters": []}, "bettors": []}
-        bettors["match"]["status"] = self._status_to_BettingStatus(jresp["status"])
+        bettors["match"]["status"] = self._status_to_MatchStatus(jresp["status"])
         bettors["match"]["red_team_name"] = jresp["p1name"]
         if not jresp["p1name"].startswith("Team "):
             red_fighter: Fighter = {"name": jresp["p1name"]}
@@ -380,7 +381,7 @@ class SaltybetClient:
             return None
         stats: Match = {"red_fighters": [], "blue_fighters": []}
         red_1: Fighter = {}
-        if " / " in jresp["p1name"]:
+        if " / " in jresp["p1tier"]:
             red_2: Fighter = {}
             red_1["name"], red_2["name"] = jresp["p1name"].split(" / ")
             red_1["author"], red_2["author"] = jresp["p1author"].split(" / ")
@@ -405,7 +406,7 @@ class SaltybetClient:
             stats["red_fighters"] = [red_1]
 
         blue_1: Fighter = {}
-        if " / " in jresp["p2name"]:
+        if " / " in jresp["p2tier"]:
             blue_2: Fighter = {}
             blue_1["name"], blue_2["name"] = jresp["p2name"].split(" / ")
             blue_1["author"], blue_2["author"] = jresp["p2author"].split(" / ")
@@ -499,11 +500,13 @@ class SaltybetClient:
                 match["red_team_name"] = red_team_name.strip()
                 if not match["red_team_name"].startswith("Team "):
                     match["red_fighters"] = [{"name": match["red_team_name"]}]
-                match["red_bets"] = int(red_bets)
+                if red_bets != "":
+                    match["red_bets"] = int(red_bets)
                 match["blue_team_name"] = blue_team_name.strip()
                 if not match["blue_team_name"].startswith("Team "):
                     match["blue_fighters"] = [{"name": match["blue_team_name"]}]
-                match["blue_bets"] = int(blue_bets)
+                if blue_bets != "":
+                    match["blue_bets"] = int(blue_bets)
 
             row_span = row.css_first("td:nth-child(2) > span:nth-child(1)")
             if row_span is None:
@@ -673,7 +676,7 @@ class SaltybetClient:
 
         return fighter
 
-    def _status_to_BettingStatus(self, status: str) -> MatchStatus:
+    def _status_to_MatchStatus(self, status: str) -> MatchStatus:
         # Determine BettingStatus
         out = MatchStatus.UNKNOWN
         if status == "open":
@@ -685,7 +688,7 @@ class SaltybetClient:
         elif status == "2":
             out = MatchStatus.BLUE_WINS
         else:
-            logger.debug(f"Unhandled status: {status}")
+            logger.warn(f"Unhandled status: {status}")
         return out
 
     # State Parsing
@@ -700,22 +703,27 @@ class SaltybetClient:
 
         out: Match = {}
 
-        out["status"] = self._status_to_BettingStatus(state["status"])
+        out["status"] = self._status_to_MatchStatus(state["status"])
 
         # Determine GameMode
+        until_next_mode: int = 0
         out["mode"] = GameMode.UNKNOWN
         if state["alert"] == "Tournament mode start!":
             out["mode"] = GameMode.TOURNAMENT
         elif state["remaining"].endswith("in the bracket!"):
+            until_next_mode = int(state["remaining"].split(" ")[0])
             out["mode"] = GameMode.TOURNAMENT
         elif state["alert"] == "Exhibition mode start!":
             out["mode"] = GameMode.EXHIBITION
         elif state["remaining"].endswith("exhibition matches left!"):
+            until_next_mode = int(state["remaining"].split(" ")[0])
             out["mode"] = GameMode.EXHIBITION
         elif state["remaining"].endswith("next tournament!"):
+            until_next_mode = int(state["remaining"].split(" ")[0])
             out["mode"] = GameMode.MATCHMAKING
         else:
             logger.debug(f"Unhandled alert: {state['alert']}")
+        self._matches_left_in_mode = until_next_mode
 
         p1name = state["p1name"]
         if not p1name.startswith("Team "):
@@ -725,7 +733,7 @@ class SaltybetClient:
         p2name = state["p2name"]
         if not p2name.startswith("Team "):
             out["blue_fighters"] = [{"name": p2name}]
-        out["blue_team_name"] = p1name
+        out["blue_team_name"] = p2name
 
         out["red_bets"] = int(state["p1total"].replace(",", ""))
         out["blue_bets"] = int(state["p2total"].replace(",", ""))
@@ -765,36 +773,40 @@ class SaltybetClient:
             logger.debug(f"Current mode changed to {game_mode.name}")
             await self._trigger_mode_change(game_mode)
 
-    async def _trigger_betting_change(self, betting_status: MatchStatus):
+    async def _trigger_betting_change(self, match_status: MatchStatus):
         await asyncio.gather(
             *[
-                f(betting_status, self._red_team_name, self._red_bets, self._blue_team_name, self._blue_bets,)
+                f(match_status, self._red_team_name, self._red_bets, self._blue_team_name, self._blue_bets)
                 for f in self._on_betting_change_triggers
             ]
         )
-        if betting_status == MatchStatus.OPEN:
-            await asyncio.gather(*[f(self._red_team_name, self._blue_team_name) for f in self._on_betting_open_triggers])
-        elif betting_status == MatchStatus.LOCKED:
+        if match_status == MatchStatus.OPEN:
             await asyncio.gather(
-                *[f(self._red_team_name, self._red_bets, self._blue_team_name, self._blue_bets) for f in self._on_betting_locked_triggers]
+                *[f(match_status, self._red_team_name, 0, self._blue_team_name, 0) for f in self._on_betting_open_triggers]
             )
-        elif betting_status == MatchStatus.RED_WINS:
+        elif match_status == MatchStatus.LOCKED:
             await asyncio.gather(
-                *[f(self._red_team_name, self._red_bets, self._blue_team_name, self._blue_bets) for f in self._on_betting_payout_triggers]
+                *[
+                    f(match_status, self._red_team_name, self._red_bets, self._blue_team_name, self._blue_bets)
+                    for f in self._on_betting_locked_triggers
+                ]
             )
-        elif betting_status == MatchStatus.BLUE_WINS:
+        elif match_status in [MatchStatus.RED_WINS, MatchStatus.BLUE_WINS, MatchStatus.DRAW]:
             await asyncio.gather(
-                *[f(self._blue_team_name, self._blue_bets, self._red_team_name, self._red_bets) for f in self._on_betting_payout_triggers]
+                *[
+                    f(match_status, self._red_team_name, self._red_bets, self._blue_team_name, self._blue_bets)
+                    for f in self._on_betting_payout_triggers
+                ]
             )
 
     async def _trigger_mode_change(self, game_mode: GameMode):
         await asyncio.gather(*[f(game_mode) for f in self._on_mode_change_triggers])
         if game_mode == GameMode.TOURNAMENT:
-            await asyncio.gather(*[f() for f in self._on_mode_tournament_triggers])
+            await asyncio.gather(*[f(game_mode) for f in self._on_mode_tournament_triggers])
         elif game_mode == GameMode.EXHIBITION:
-            await asyncio.gather(*[f() for f in self._on_mode_exhibition_triggers])
+            await asyncio.gather(*[f(game_mode) for f in self._on_mode_exhibition_triggers])
         elif game_mode == GameMode.MATCHMAKING:
-            await asyncio.gather(*[f() for f in self._on_mode_matchmaking_triggers])
+            await asyncio.gather(*[f(game_mode) for f in self._on_mode_matchmaking_triggers])
 
     # Event Decorators
     def on_start(self, func: Callable[[], Awaitable[None]]) -> Callable[[], Awaitable[None]]:
@@ -814,17 +826,23 @@ class SaltybetClient:
             self._on_betting_change_triggers.append(func)
         return func
 
-    def on_betting_open(self, func: Callable[[str, str], Awaitable[None]]) -> Callable[[str, str], Awaitable[None]]:
+    def on_betting_open(
+        self, func: Callable[[MatchStatus, str, int, str, int], Awaitable[None]]
+    ) -> Callable[[MatchStatus, str, int, str, int], Awaitable[None]]:
         if func not in self._on_betting_open_triggers:
             self._on_betting_open_triggers.append(func)
         return func
 
-    def on_betting_locked(self, func: Callable[[str, int, str, int], Awaitable[None]]) -> Callable[[str, int, str, int], Awaitable[None]]:
+    def on_betting_locked(
+        self, func: Callable[[MatchStatus, str, int, str, int], Awaitable[None]]
+    ) -> Callable[[MatchStatus, str, int, str, int], Awaitable[None]]:
         if func not in self._on_betting_locked_triggers:
             self._on_betting_locked_triggers.append(func)
         return func
 
-    def on_betting_payout(self, func: Callable[[str, int, str, int], Awaitable[None]]) -> Callable[[str, int, str, int], Awaitable[None]]:
+    def on_betting_payout(
+        self, func: Callable[[MatchStatus, str, int, str, int], Awaitable[None]]
+    ) -> Callable[[MatchStatus, str, int, str, int], Awaitable[None]]:
         if func not in self._on_betting_payout_triggers:
             self._on_betting_payout_triggers.append(func)
         return func
@@ -834,17 +852,17 @@ class SaltybetClient:
             self._on_mode_change_triggers.append(func)
         return func
 
-    def on_mode_tournament(self, func: Callable[[], Awaitable[None]]) -> Callable[[], Awaitable[None]]:
+    def on_mode_tournament(self, func: Callable[[GameMode], Awaitable[None]]) -> Callable[[GameMode], Awaitable[None]]:
         if func not in self._on_mode_tournament_triggers:
             self._on_mode_tournament_triggers.append(func)
         return func
 
-    def on_mode_exhibition(self, func: Callable[[], Awaitable[None]]) -> Callable[[], Awaitable[None]]:
+    def on_mode_exhibition(self, func: Callable[[GameMode], Awaitable[None]]) -> Callable[[GameMode], Awaitable[None]]:
         if func not in self._on_mode_exhibition_triggers:
             self._on_mode_exhibition_triggers.append(func)
         return func
 
-    def on_mode_matchmaking(self, func: Callable[[], Awaitable[None]]) -> Callable[[], Awaitable[None]]:
+    def on_mode_matchmaking(self, func: Callable[[GameMode], Awaitable[None]]) -> Callable[[GameMode], Awaitable[None]]:
         if func not in self._on_mode_matchmaking_triggers:
             self._on_mode_matchmaking_triggers.append(func)
         return func
