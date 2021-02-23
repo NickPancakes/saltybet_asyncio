@@ -5,7 +5,8 @@ import asyncio
 from collections.abc import Callable, Awaitable
 from decimal import Decimal
 import logging
-from typing import List, Tuple, Optional
+from typing import Generator, List, Tuple, Optional
+from random import random
 import re
 
 import aiohttp
@@ -79,19 +80,30 @@ class SaltybetClient:
             # SocketIO Client
             self.sio = socketio.AsyncClient()
 
+    def _wait_generator(self, factor: float = 4, max_wait: float = 512.0) -> Generator[float, None, None]:
+        n = 0
+        while True:
+            a = (factor * (2 ** n)) + random()
+            if a <= max_wait:
+                yield a
+                n += 1
+            else:
+                yield max_wait
+
     # HTTP GET Request with limit message check. Only used for scraping and illuminati-required stats.
-    async def _get_html(
-        self, url: str, wait_between_requests: float = 5.0, wait_after_limit_hit: float = 180.0, max_retries: int = 10
-    ) -> Optional[bytes]:  # pylint: disable=unsubscriptable-object
+    async def _get_html(self, url: str, max_retries: int = 10) -> Optional[bytes]:  # pylint: disable=unsubscriptable-object
         out = None
+        normal_wait_gen = self._wait_generator(factor=6.5, max_wait=90.0)
+        limit_wait_gen = self._wait_generator(factor=90.0, max_wait=300.0)
         async with self._semaphore:
             logger.debug(f"Attempting to get {url} without hitting limit...")
             for i in range(max_retries):
                 # Delay between each request
                 since_last_req = pendulum.now().diff(self._last_req).in_seconds()
                 logger.debug(f"{since_last_req} seconds since last request")
-                if since_last_req < wait_between_requests:
-                    wait_secs = wait_between_requests - since_last_req
+                wait = next(normal_wait_gen)
+                if since_last_req < wait:
+                    wait_secs = wait - since_last_req
                     logger.debug(f"Waiting {wait_secs} seconds before next request...")
                     await asyncio.sleep(wait_secs)
 
@@ -106,8 +118,9 @@ class SaltybetClient:
                     # Check for limit reached message.
                     content = HTMLParser(html).css_first("#content")
                     if content is not None and "The maximum number of stats requests has been reached." in content.text(deep=False):
-                        logger.info(f"Maximum requests hit on attempt {i}. Waiting {wait_after_limit_hit} seconds before retrying...")
-                        await asyncio.sleep(wait_after_limit_hit)
+                        wait_after_limit = next(limit_wait_gen)
+                        logger.info(f"Maximum requests hit on attempt {i}. Waiting {wait_after_limit} seconds before retrying...")
+                        await asyncio.sleep(wait_after_limit)
                         continue
 
                     out = html
