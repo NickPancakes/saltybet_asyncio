@@ -71,24 +71,24 @@ class SaltybetClient:
         self._on_mode_matchmaking_triggers: List[Callable[[GameMode], Awaitable[None]]] = []
 
     async def init(self):
-        if self._semaphore is None:
-            # Create asyncio semaphore to disallow simulateous scraping.
-            self._semaphore = asyncio.Semaphore(1)
-
-        if self.session is None:
-            # Create aiohttp session
-            self.session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=10, limit_per_host=5))
-
-        if self.sio is None:
-            # SocketIO Client
-            self.sio = socketio.AsyncClient()
-            # Register Websocket Handler
-            self.sio.on("message", self._on_message)
-            # Websocket Connect
-            await self.sio.connect("https://www.saltybet.com:2096")
-
-        # On_Start Event
         if not self._started:
+            if self._semaphore is None:
+                # Create asyncio semaphore to disallow simulateous scraping.
+                self._semaphore = asyncio.Semaphore(1)
+
+            if self.session is None:
+                # Create aiohttp session
+                self.session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=10, limit_per_host=5))
+
+            if self.sio is None:
+                # SocketIO Client
+                self.sio = socketio.AsyncClient()
+                # Register Websocket Handler
+                self.sio.on("message", self._on_message)
+                # Websocket Connect
+                await self.sio.connect("https://www.saltybet.com:2096")
+
+            # On_Start Event
             for f in self._on_start_triggers:
                 await f()
             self._started = True
@@ -296,7 +296,6 @@ class SaltybetClient:
     async def login(self, email: str, password: str):
         self.email = email
         self.password = password
-        await self.init()
         await self._login()
 
     async def _login(self):
