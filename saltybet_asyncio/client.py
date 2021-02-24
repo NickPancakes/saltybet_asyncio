@@ -40,6 +40,7 @@ class SaltybetClient:
         self._tournament_regex = re.compile(r"(.+) - \$(\d*), (.+) - \$(\d*)")
 
         # State
+        self._started: bool = False
         self._logged_in: bool = False
         self._last_login: pendulum.DateTime = pendulum.now().subtract(days=1)
         self._illuminati: bool = False
@@ -73,21 +74,24 @@ class SaltybetClient:
         if self._semaphore is None:
             # Create asyncio semaphore to disallow simulateous scraping.
             self._semaphore = asyncio.Semaphore(1)
+
         if self.session is None:
             # Create aiohttp session
             self.session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=10, limit_per_host=5))
+
         if self.sio is None:
             # SocketIO Client
             self.sio = socketio.AsyncClient()
-
-        # Register Websocket Handler
-        self.sio.on("message", self._on_message)
-        # Websocket Connect
-        await self.sio.connect("https://www.saltybet.com:2096")
+            # Register Websocket Handler
+            self.sio.on("message", self._on_message)
+            # Websocket Connect
+            await self.sio.connect("https://www.saltybet.com:2096")
 
         # On_Start Event
-        for f in self._on_start_triggers:
-            await f()
+        if not self._started:
+            for f in self._on_start_triggers:
+                await f()
+            self._started = True
 
     def _wait_generator(self, factor: float = 1, max_wait: float = 512.0) -> Generator[float, None, None]:
         n = 0
@@ -292,7 +296,7 @@ class SaltybetClient:
     async def login(self, email: str, password: str):
         self.email = email
         self.password = password
-        await self._init()
+        await self.init()
         await self._login()
 
     async def _login(self):
@@ -890,7 +894,7 @@ class SaltybetClient:
         return func
 
     async def run_forever(self):
-        await self._init()
+        await self.init()
 
         # Listen for Events
         while True:
