@@ -69,7 +69,7 @@ class SaltybetClient:
         self._on_mode_exhibition_triggers: List[Callable[[GameMode], Awaitable[None]]] = []
         self._on_mode_matchmaking_triggers: List[Callable[[GameMode], Awaitable[None]]] = []
 
-    async def _init(self):
+    async def init(self):
         if self._semaphore is None:
             # Create asyncio semaphore to disallow simulateous scraping.
             self._semaphore = asyncio.Semaphore(1)
@@ -80,7 +80,16 @@ class SaltybetClient:
             # SocketIO Client
             self.sio = socketio.AsyncClient()
 
-    def _wait_generator(self, factor: float = 4, max_wait: float = 512.0) -> Generator[float, None, None]:
+        # Register Websocket Handler
+        self.sio.on("message", self._on_message)
+        # Websocket Connect
+        await self.sio.connect("https://www.saltybet.com:2096")
+
+        # On_Start Event
+        for f in self._on_start_triggers:
+            await f()
+
+    def _wait_generator(self, factor: float = 1, max_wait: float = 512.0) -> Generator[float, None, None]:
         n = 0
         while True:
             a = (factor * (2 ** n)) + random()
@@ -93,7 +102,7 @@ class SaltybetClient:
     # HTTP GET Request with limit message check. Only used for scraping and illuminati-required stats.
     async def _get_html(self, url: str, max_retries: int = 10) -> Optional[bytes]:  # pylint: disable=unsubscriptable-object
         out = None
-        normal_wait_gen = self._wait_generator(factor=6.5, max_wait=90.0)
+        normal_wait_gen = self._wait_generator(factor=7.0, max_wait=90.0)
         limit_wait_gen = self._wait_generator(factor=90.0, max_wait=300.0)
         async with self._semaphore:
             logger.debug(f"Attempting to get {url} without hitting limit...")
@@ -882,15 +891,6 @@ class SaltybetClient:
 
     async def run_forever(self):
         await self._init()
-
-        # Register Websocket Handler
-        self.sio.on("message", self._on_message)
-        # Websocket Connect
-        await self.sio.connect("https://www.saltybet.com:2096")
-
-        # On_Start Event
-        for f in self._on_start_triggers:
-            await f()
 
         # Listen for Events
         while True:
