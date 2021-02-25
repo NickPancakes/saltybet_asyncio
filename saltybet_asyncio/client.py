@@ -19,7 +19,7 @@ from selectolax.parser import HTMLParser  # pylint: disable=no-name-in-module
 from .types import Fighter, Match, Tournament, Upgrade, SideColor, MatchStatus, GameMode, Tier, UpgradeType, Bettors, Bettor
 
 
-logger = logging.getLogger("saltybet_asyncio")
+logger = logging.getLogger(__name__)
 
 
 class FailedToLoadError(BaseException):
