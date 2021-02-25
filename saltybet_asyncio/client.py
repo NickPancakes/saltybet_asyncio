@@ -29,6 +29,10 @@ class FailedToLoadError(BaseException):
 class SaltybetClient:
     def __init__(self):
         # pylint: disable=unsubscriptable-object
+
+        # Initialized
+        self.initialized: bool = False
+
         # Connections
         self.session: aiohttp.ClientSession = None
         self.sio: socketio.AsyncClient = None
@@ -37,6 +41,7 @@ class SaltybetClient:
         self._semaphore: asyncio.Semaphore = None
         self._last_req: pendulum.DateTime = pendulum.now().subtract(minutes=1)
 
+        # Regex
         self._tournament_regex = re.compile(r"(.+) - \$(\d*), (.+) - \$(\d*)")
 
         # State
@@ -71,7 +76,7 @@ class SaltybetClient:
         self._on_mode_matchmaking_triggers: List[Callable[[GameMode], Awaitable[None]]] = []
 
     async def init(self):
-        if not self._started:
+        if not self.initialized:
             if self._semaphore is None:
                 # Create asyncio semaphore to disallow simulateous scraping.
                 self._semaphore = asyncio.Semaphore(1)
@@ -91,7 +96,7 @@ class SaltybetClient:
             # On_Start Event
             for f in self._on_start_triggers:
                 await f()
-            self._started = True
+            self.initialized = True
 
     def _wait_generator(self, factor: float = 1, max_wait: float = 512.0) -> Generator[float, None, None]:
         n = 0
