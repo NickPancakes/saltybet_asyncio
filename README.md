@@ -1,6 +1,8 @@
 # saltybet_asyncio
-An asycnio-based libary for interacting with Saltybet. 
+An asyncio-based libary for interacting with Saltybet. 
+
 See `examples/random_bet_bot.py` for example usage.
+
 Probaby requires Python 3.8 or higher.
 
 # Install
