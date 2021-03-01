@@ -46,13 +46,13 @@ class UpgradeType(IntEnum):
     METER_DECREASE = 6
 
 
-class Upgrade(TypedDict, total=False):  # pylint: disable=inherit-non-class
+class Upgrade(TypedDict, total=False):
     upgrade_type: UpgradeType
     username: str
     value: int
 
 
-class Fighter(TypedDict, total=False):  # pylint: disable=inherit-non-class
+class Fighter(TypedDict, total=False):
     fighter_id: int
     name: str
     tier: Tier
@@ -66,7 +66,7 @@ class Fighter(TypedDict, total=False):  # pylint: disable=inherit-non-class
     upgrades: List[Upgrade]
 
 
-class Match(TypedDict, total=False):  # pylint: disable=inherit-non-class
+class Match(TypedDict, total=False):
     match_id: int
     tournament_id: int
     status: MatchStatus
@@ -79,14 +79,14 @@ class Match(TypedDict, total=False):  # pylint: disable=inherit-non-class
     blue_bets: int
 
 
-class Tournament(TypedDict, total=False):  # pylint: disable=inherit-non-class
+class Tournament(TypedDict, total=False):
     tournament_id: int
     name: str
     mode: GameMode
     matches: List[Match]
 
 
-class Bettor(TypedDict, total=False):  # pylint: disable=inherit-non-class
+class Bettor(TypedDict, total=False):
     bettor_id: int
     username: str
     balance: int
@@ -99,7 +99,7 @@ class Bettor(TypedDict, total=False):  # pylint: disable=inherit-non-class
     color_b: str
 
 
-class Bettors(TypedDict, total=False):  # pylint: disable=inherit-non-class
+class Bettors(TypedDict, total=False):
     match: Match
     bettors: List[Bettor]
 

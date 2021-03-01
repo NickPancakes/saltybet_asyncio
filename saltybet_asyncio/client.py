@@ -27,14 +27,16 @@ class FailedToLoadError(BaseException):
 
 class SaltybetClient:
     def __init__(self):
-        # pylint: disable=unsubscriptable-object
-
         # Initialized
         self.initialized: bool = False
 
         # Connections
         self.session: aiohttp.ClientSession = None
         self.sio: socketio.AsyncClient = None
+
+        # Credentials
+        self.email: Optional[str] = None
+        self.password: Optional[str] = None
 
         # Limit Management
         self._semaphore: asyncio.Semaphore = None
@@ -57,10 +59,6 @@ class SaltybetClient:
         self._blue_team_name: str = ""
         self._blue_bets: int = 0
         self._matches_left_in_mode: int = 0
-
-        # Credentials
-        self.email: Optional[str] = None
-        self.password: Optional[str] = None
 
         # Triggers
         self._on_start_triggers: List[Callable[[], Awaitable[None]]] = []
@@ -108,7 +106,7 @@ class SaltybetClient:
                 yield max_wait
 
     # HTTP GET Request with limit message check. Only used for scraping and illuminati-required stats.
-    async def _get_html(self, url: str, max_retries: int = 10) -> Optional[bytes]:  # pylint: disable=unsubscriptable-object
+    async def _get_html(self, url: str, max_retries: int = 10) -> Optional[bytes]:
         out = None
         normal_wait_gen = self._wait_generator(factor=7.0, max_wait=90.0)
         limit_wait_gen = self._wait_generator(factor=90.0, max_wait=300.0)
@@ -201,7 +199,7 @@ class SaltybetClient:
         return balance
 
     @property
-    async def tournament_id(self) -> Optional[int]:  # pylint: disable=unsubscriptable-object
+    async def tournament_id(self) -> Optional[int]:
         try:
             await self._login()
         except HTTPUnauthorized:
@@ -231,7 +229,7 @@ class SaltybetClient:
         return self._tournament_id
 
     @property
-    async def match_id(self) -> Optional[int]:  # pylint: disable=unsubscriptable-object
+    async def match_id(self) -> Optional[int]:
         try:
             await self._login()
         except HTTPUnauthorized:
@@ -339,7 +337,7 @@ class SaltybetClient:
             else:
                 logger.debug("Bet placed successfully")
 
-    async def _get_raw_zdata_json(self) -> Optional[dict]:  # pylint: disable=unsubscriptable-object
+    async def _get_raw_zdata_json(self) -> Optional[dict]:
         jresp: dict = {}
         async with self.session.get("https://www.saltybet.com/zdata.json") as resp:
             html = await resp.read()
@@ -349,7 +347,7 @@ class SaltybetClient:
                 return None
         return jresp
 
-    async def get_bettors(self) -> Optional[Bettors]:  # pylint: disable=unsubscriptable-object
+    async def get_bettors(self) -> Optional[Bettors]:
         """Fetches data from zdata.json"""
         jresp = await self._get_raw_zdata_json()
         if jresp is None:
@@ -388,7 +386,7 @@ class SaltybetClient:
             bettors["bettors"].append(bettor)
         return bettors
 
-    async def _get_raw_ajax_get_stats_php(self) -> Optional[dict]:  # pylint: disable=unsubscriptable-object
+    async def _get_raw_ajax_get_stats_php(self) -> Optional[dict]:
         try:
             await self._login()
         except HTTPUnauthorized:
@@ -403,7 +401,7 @@ class SaltybetClient:
             jresp = await resp.json(content_type="text/html")
         return jresp
 
-    async def get_match_stats(self) -> Optional[Match]:  # pylint: disable=unsubscriptable-object
+    async def get_match_stats(self) -> Optional[Match]:
         """Fetches data from ajax_get_stats.php"""
         jresp = await self._get_raw_ajax_get_stats_php()
         if jresp is None:
@@ -477,7 +475,7 @@ class SaltybetClient:
             tournament_title = tournament_name.split("Tournament)")[1].lstrip()
         return tournament_mode, tournament_title
 
-    async def scrape_tournament(self, tournament_id: int) -> Optional[Tournament]:  # pylint: disable=unsubscriptable-object
+    async def scrape_tournament(self, tournament_id: int) -> Optional[Tournament]:
         try:
             await self._login()
         except HTTPUnauthorized:
@@ -548,7 +546,7 @@ class SaltybetClient:
             tournament["matches"].append(match)
         return tournament
 
-    async def scrape_match(self, tournament_id: int, match_id: int) -> Optional[Match]:  # pylint: disable=unsubscriptable-object
+    async def scrape_match(self, tournament_id: int, match_id: int) -> Optional[Match]:
         try:
             await self._login()
         except HTTPUnauthorized:
@@ -610,7 +608,7 @@ class SaltybetClient:
                 match["blue_bets"] += amount
         return match
 
-    async def scrape_compendium(self, tier: Tier) -> Optional[List[Fighter]]:  # pylint: disable=unsubscriptable-object
+    async def scrape_compendium(self, tier: Tier) -> Optional[List[Fighter]]:
         fighters: List[Fighter] = []
         try:
             await self._login()
@@ -638,7 +636,7 @@ class SaltybetClient:
             )
         return fighters
 
-    async def scrape_fighter(self, tier: Tier, fighter_id: int) -> Optional[Fighter]:  # pylint: disable=unsubscriptable-object
+    async def scrape_fighter(self, tier: Tier, fighter_id: int) -> Optional[Fighter]:
         fighter: Fighter = {}
         try:
             await self._login()
