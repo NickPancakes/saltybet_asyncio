@@ -897,7 +897,7 @@ class SaltybetClient:
             self._on_mode_matchmaking_triggers.append(func)
         return func
 
-    async def run_forever(self):
+    async def run(self):
         await self.init()
 
         # Listen for Events

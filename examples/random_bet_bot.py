@@ -111,4 +111,4 @@ if __name__ == "__main__":
             else:
                 logger.info(f"You're out ${bet_amount}. Dang!")
 
-    aiorun.run(client.run_forever())
+    aiorun.run(client.run())
