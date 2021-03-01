@@ -2,12 +2,12 @@
 """pylint option block-disable"""
 
 import asyncio
-from collections.abc import Callable, Awaitable
-from decimal import Decimal
 import logging
-from typing import Generator, List, Tuple, Optional
-from random import random
 import re
+from collections.abc import Awaitable, Callable
+from decimal import Decimal
+from random import random
+from typing import Generator, List, Optional, Tuple
 
 import aiohttp
 import aiorun
@@ -16,8 +16,7 @@ import socketio
 from aiohttp.web import HTTPUnauthorized
 from selectolax.parser import HTMLParser  # pylint: disable=no-name-in-module
 
-from .types import Fighter, Match, Tournament, Upgrade, SideColor, MatchStatus, GameMode, Tier, UpgradeType, Bettors, Bettor
-
+from .types import Bettor, Bettors, Fighter, GameMode, Match, MatchStatus, SideColor, Tier, Tournament, Upgrade, UpgradeType
 
 logger = logging.getLogger(__name__)
 

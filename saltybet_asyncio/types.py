@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 from enum import IntEnum
-from typing import Dict, TypedDict, List
+from typing import TypedDict, List
 
 
 class MatchStatus(IntEnum):
