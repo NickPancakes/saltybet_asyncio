@@ -16,7 +16,19 @@ import socketio
 from aiohttp.web import HTTPUnauthorized
 from selectolax.parser import HTMLParser  # pylint: disable=no-name-in-module
 
-from .types import Bettor, Bettors, Fighter, GameMode, Match, MatchStatus, SideColor, Tier, Tournament, Upgrade, UpgradeType
+from .types import (
+    Bettor,
+    Bettors,
+    Fighter,
+    GameMode,
+    Match,
+    MatchStatus,
+    SideColor,
+    Tier,
+    Tournament,
+    Upgrade,
+    UpgradeType,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,27 +62,38 @@ class SaltybetClient:
         self._logged_in: bool = False
         self._last_login: pendulum.DateTime = pendulum.now().subtract(days=1)
         self._illuminati: bool = False
-        self._betting_status: MatchStatus = MatchStatus.UNKNOWN
-        self._game_mode: GameMode = GameMode.UNKNOWN
         self._tournament_id: int = 0
         self._match_id: int = 0
-        self._red_team_name: str = ""
-        self._red_bets: int = 0
-        self._blue_team_name: str = ""
-        self._blue_bets: int = 0
+        self._match: Match = {"status": MatchStatus.UNKNOWN}
+        self._last_match_status: MatchStatus = MatchStatus.UNKNOWN
+        self._last_game_mode: GameMode = GameMode.UNKNOWN
         self._matches_left_in_mode: int = 0
 
         # Triggers
         self._on_start_triggers: List[Callable[[], Awaitable[None]]] = []
         self._on_end_triggers: List[Callable[[], Awaitable[None]]] = []
-        self._on_betting_change_triggers: List[Callable[[MatchStatus, str, int, str, int], Awaitable[None]]] = []
-        self._on_betting_open_triggers: List[Callable[[MatchStatus, str, int, str, int], Awaitable[None]]] = []
-        self._on_betting_locked_triggers: List[Callable[[MatchStatus, str, int, str, int], Awaitable[None]]] = []
-        self._on_betting_payout_triggers: List[Callable[[MatchStatus, str, int, str, int], Awaitable[None]]] = []
+        self._on_betting_change_triggers: List[
+            Callable[[MatchStatus, str, int, str, int], Awaitable[None]]
+        ] = []
+        self._on_betting_open_triggers: List[
+            Callable[[MatchStatus, str, int, str, int], Awaitable[None]]
+        ] = []
+        self._on_betting_locked_triggers: List[
+            Callable[[MatchStatus, str, int, str, int], Awaitable[None]]
+        ] = []
+        self._on_betting_payout_triggers: List[
+            Callable[[MatchStatus, str, int, str, int], Awaitable[None]]
+        ] = []
         self._on_mode_change_triggers: List[Callable[[GameMode], Awaitable[None]]] = []
-        self._on_mode_tournament_triggers: List[Callable[[GameMode], Awaitable[None]]] = []
-        self._on_mode_exhibition_triggers: List[Callable[[GameMode], Awaitable[None]]] = []
-        self._on_mode_matchmaking_triggers: List[Callable[[GameMode], Awaitable[None]]] = []
+        self._on_mode_tournament_triggers: List[
+            Callable[[GameMode], Awaitable[None]]
+        ] = []
+        self._on_mode_exhibition_triggers: List[
+            Callable[[GameMode], Awaitable[None]]
+        ] = []
+        self._on_mode_matchmaking_triggers: List[
+            Callable[[GameMode], Awaitable[None]]
+        ] = []
 
     async def init(self):
         if not self.initialized:
@@ -80,7 +103,9 @@ class SaltybetClient:
 
             if self.session is None:
                 # Create aiohttp session
-                self.session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=10, limit_per_host=5))
+                self.session = aiohttp.ClientSession(
+                    connector=aiohttp.TCPConnector(limit=10, limit_per_host=5)
+                )
 
             if self.sio is None:
                 # SocketIO Client
@@ -95,7 +120,9 @@ class SaltybetClient:
                 await f()
             self.initialized = True
 
-    def _wait_generator(self, factor: float = 1, max_wait: float = 512.0) -> Generator[float, None, None]:
+    def _wait_generator(
+        self, factor: float = 1, max_wait: float = 512.0
+    ) -> Generator[float, None, None]:
         n = 0
         while True:
             a = (factor * (2 ** n)) + random()
@@ -132,9 +159,15 @@ class SaltybetClient:
 
                     # Check for limit reached message.
                     content = HTMLParser(html).css_first("#content")
-                    if content is not None and "The maximum number of stats requests has been reached." in content.text(deep=False):
+                    if (
+                        content is not None
+                        and "The maximum number of stats requests has been reached."
+                        in content.text(deep=False)
+                    ):
                         wait_after_limit = next(limit_wait_gen)
-                        logger.info(f"Maximum requests hit on attempt {i}. Waiting {wait_after_limit} seconds before retrying...")
+                        logger.info(
+                            f"Maximum requests hit on attempt {i}. Waiting {wait_after_limit} seconds before retrying..."
+                        )
                         await asyncio.sleep(wait_after_limit)
                         continue
 
@@ -213,7 +246,9 @@ class SaltybetClient:
         if self._tournament_id != 0:
             return self._tournament_id
 
-        html = await self._get_html("https://www.saltybet.com/stats?tournamentstats=1&page=1")
+        html = await self._get_html(
+            "https://www.saltybet.com/stats?tournamentstats=1&page=1"
+        )
         if html is None:
             logger.error("Failed to get Tournament ID")
             return None
@@ -243,13 +278,17 @@ class SaltybetClient:
             return self._match_id
 
         tournament_id = await self.tournament_id
-        html = await self._get_html(f"https://www.saltybet.com/stats?tournament_id={tournament_id}")
+        html = await self._get_html(
+            f"https://www.saltybet.com/stats?tournament_id={tournament_id}"
+        )
         if html is None:
             logger.error("Failed to get Match ID")
             return None
 
         tree = HTMLParser(html)
-        top_row = tree.css_first(".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > td:nth-child(1) > a:nth-child(1)")
+        top_row = tree.css_first(
+            ".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > td:nth-child(1) > a:nth-child(1)"
+        )
         if top_row is None:
             logger.error("Failed to get Match ID")
             return None
@@ -259,40 +298,46 @@ class SaltybetClient:
 
     # Properties parsed from state.json
     @property
+    async def match(self) -> Match:
+        if self._match["status"] == MatchStatus.UNKNOWN:
+            await self._get_state()
+        return self._match
+
+    @property
     async def betting_status(self) -> MatchStatus:
-        if self._betting_status == MatchStatus.UNKNOWN:
-            await self._get_state(store=True)
-        return self._betting_status
+        if self._match["status"] == MatchStatus.UNKNOWN:
+            await self._get_state()
+        return self._match["status"]
 
     @property
     async def game_mode(self) -> GameMode:
-        if self._game_mode == GameMode.UNKNOWN:
-            await self._get_state(store=True)
-        return self._game_mode
+        if self._match["status"] == MatchStatus.UNKNOWN:
+            await self._get_state()
+        return self._match["mode"]
 
     @property
     async def red_team_name(self) -> str:
-        if self._red_team_name == "":
-            await self._get_state(store=True)
-        return self._red_team_name
+        if self._match["status"] == MatchStatus.UNKNOWN:
+            await self._get_state()
+        return self._match["red_team_name"]
 
     @property
     async def blue_team_name(self) -> str:
-        if self._blue_team_name == "":
-            await self._get_state(store=True)
-        return self._blue_team_name
+        if self._match["status"] == MatchStatus.UNKNOWN:
+            await self._get_state()
+        return self._match["blue_team_name"]
 
     @property
     async def red_bets(self) -> int:
-        if self._red_bets == 0:
-            await self._get_state(store=True)
-        return self._red_bets
+        if self._match["status"] == MatchStatus.UNKNOWN:
+            await self._get_state()
+        return self._match["red_bets"]
 
     @property
     async def blue_bets(self) -> int:
-        if self._blue_bets == 0:
-            await self._get_state(store=True)
-        return self._blue_bets
+        if self._match["status"] == MatchStatus.UNKNOWN:
+            await self._get_state()
+        return self._match["blue_bets"]
 
     # Actions
     async def login(self, email: str, password: str):
@@ -307,7 +352,9 @@ class SaltybetClient:
         if await self.logged_in:
             return
         data = {"email": self.email, "pword": self.password, "authenticate": "signin"}
-        await self.session.post("https://www.saltybet.com/authenticate?signin=1", data=data)
+        await self.session.post(
+            "https://www.saltybet.com/authenticate?signin=1", data=data
+        )
         if not await self.logged_in:
             logger.error("Login Failed, check your credentials.")
             raise HTTPUnauthorized
@@ -330,7 +377,9 @@ class SaltybetClient:
         elif side == SideColor.BLUE:
             player = "player2"
         data = {"selectedplayer": player, "wager": wager}
-        async with self.session.post("https://www.saltybet.com/ajax_place_bet.php", data=data) as resp:
+        async with self.session.post(
+            "https://www.saltybet.com/ajax_place_bet.php", data=data
+        ) as resp:
             text = await resp.text()
             if text == "":
                 logger.error("Failed to place bet.")
@@ -352,7 +401,10 @@ class SaltybetClient:
         jresp = await self._get_raw_zdata_json()
         if jresp is None:
             return None
-        bettors: Bettors = {"match": {"red_fighters": [], "blue_fighters": []}, "bettors": []}
+        bettors: Bettors = {
+            "match": {"red_fighters": [], "blue_fighters": []},
+            "bettors": [],
+        }
         bettors["match"]["status"] = self._status_to_MatchStatus(jresp["status"])
         bettors["match"]["red_team_name"] = jresp["p1name"]
         if not jresp["p1name"].startswith("Team "):
@@ -365,11 +417,24 @@ class SaltybetClient:
         bettors["match"]["red_bets"] = int(jresp["p1total"].replace(",", ""))
         bettors["match"]["blue_bets"] = int(jresp["p2total"].replace(",", ""))
         for k, v in jresp.items():
-            if k in ["p1name", "p2name", "p1total", "p2total", "status", "alert", "x", "remaining"]:
+            if k in [
+                "p1name",
+                "p2name",
+                "p1total",
+                "p2total",
+                "status",
+                "alert",
+                "x",
+                "remaining",
+            ]:
                 continue
             elif "n" not in v or "b" not in v:
                 continue
-            bettor: Bettor = {"bettor_id": int(k), "username": v["n"], "balance": int(v["b"])}
+            bettor: Bettor = {
+                "bettor_id": int(k),
+                "username": v["n"],
+                "balance": int(v["b"]),
+            }
             if "p" in v:
                 bettor["bet_side"] = SideColor(int(v["p"]))
             if "w" in v:
@@ -378,11 +443,15 @@ class SaltybetClient:
                 if len(v["r"]) > 3:
                     bettor["avatar"] = f"https://www.gravatar.com/avatar/{v['r']}"
                 else:
-                    bettor["avatar"] = f"https://www.saltybet.com/images/ranksmall/rank{v['r']}.png"
+                    bettor[
+                        "avatar"
+                    ] = f"https://www.saltybet.com/images/ranksmall/rank{v['r']}.png"
             if "g" in v:
                 bettor["illuminati"] = v["g"] == "1"
             if "c" in v and v["c"] != "0" and "," in v["c"]:
-                bettor["color_r"], bettor["color_g"], bettor["color_b"] = v["c"].split(",")
+                bettor["color_r"], bettor["color_g"], bettor["color_b"] = v["c"].split(
+                    ","
+                )
             bettors["bettors"].append(bettor)
         return bettors
 
@@ -397,7 +466,9 @@ class SaltybetClient:
             return None
 
         jresp: dict = {}
-        async with self.session.get("https://www.saltybet.com/ajax_get_stats.php") as resp:
+        async with self.session.get(
+            "https://www.saltybet.com/ajax_get_stats.php"
+        ) as resp:
             jresp = await resp.json(content_type="text/html")
         return jresp
 
@@ -412,12 +483,18 @@ class SaltybetClient:
             red_2: Fighter = {}
             red_1["name"], red_2["name"] = jresp["p1name"].split(" / ")
             red_1["author"], red_2["author"] = jresp["p1author"].split(" / ")
-            red_1["tier"], red_2["tier"] = [Tier[tier] for tier in jresp["p1tier"].split(" / ")]
+            red_1["tier"], red_2["tier"] = [
+                Tier[tier] for tier in jresp["p1tier"].split(" / ")
+            ]
             red_1["life"], red_2["life"] = jresp["p1life"].split(" / ")
             red_1["meter"], red_2["meter"] = jresp["p1meter"].split(" / ")
             red_1["palette"], red_2["palette"] = jresp["p1palette"].split(" / ")
-            red_1["total_matches"], red_2["total_matches"] = [int(tm) for tm in jresp["p1totalmatches"].split(" / ")]
-            red_1["win_rate"], red_2["win_rate"] = [(Decimal(wr) / Decimal(100)) for wr in jresp["p1winrate"].split(" / ")]
+            red_1["total_matches"], red_2["total_matches"] = [
+                int(tm) for tm in jresp["p1totalmatches"].split(" / ")
+            ]
+            red_1["win_rate"], red_2["win_rate"] = [
+                (Decimal(wr) / Decimal(100)) for wr in jresp["p1winrate"].split(" / ")
+            ]
             stats["red_fighters"] = [red_1, red_2]
         else:
             red_1 = {
@@ -437,12 +514,18 @@ class SaltybetClient:
             blue_2: Fighter = {}
             blue_1["name"], blue_2["name"] = jresp["p2name"].split(" / ")
             blue_1["author"], blue_2["author"] = jresp["p2author"].split(" / ")
-            blue_1["tier"], blue_2["tier"] = [Tier[tier] for tier in jresp["p2tier"].split(" / ")]
+            blue_1["tier"], blue_2["tier"] = [
+                Tier[tier] for tier in jresp["p2tier"].split(" / ")
+            ]
             blue_1["life"], blue_2["life"] = jresp["p2life"].split(" / ")
             blue_1["meter"], blue_2["meter"] = jresp["p2meter"].split(" / ")
             blue_1["palette"], blue_2["palette"] = jresp["p2palette"].split(" / ")
-            blue_1["total_matches"], blue_2["total_matches"] = [int(tm) for tm in jresp["p2totalmatches"].split(" / ")]
-            blue_1["win_rate"], blue_2["win_rate"] = [(Decimal(wr) / Decimal(100)) for wr in jresp["p2winrate"].split(" / ")]
+            blue_1["total_matches"], blue_2["total_matches"] = [
+                int(tm) for tm in jresp["p2totalmatches"].split(" / ")
+            ]
+            blue_1["win_rate"], blue_2["win_rate"] = [
+                (Decimal(wr) / Decimal(100)) for wr in jresp["p2winrate"].split(" / ")
+            ]
             stats["blue_fighters"] = [blue_1, blue_2]
         else:
             blue_1 = {
@@ -459,7 +542,9 @@ class SaltybetClient:
         return stats
 
     # Scraper Functions
-    def _split_tournament_name_and_mode(self, tournament_name: str) -> Tuple[GameMode, str]:
+    def _split_tournament_name_and_mode(
+        self, tournament_name: str
+    ) -> Tuple[GameMode, str]:
         EXHIBITIONS_TAG = "(Exhibitions)"
         MATCHMAKING_TAG = "(Matchmaking)"
         tournament_title = ""
@@ -482,11 +567,19 @@ class SaltybetClient:
             logger.error("Tournament scraping only available when logged in.")
             return None
         if not await self.illuminati:
-            logger.error("Tournament scraping only available with illuminati membership.")
+            logger.error(
+                "Tournament scraping only available with illuminati membership."
+            )
             return None
 
-        tournament: Tournament = {"tournament_id": tournament_id, "mode": GameMode.UNKNOWN, "matches": []}
-        html = await self._get_html(f"https://www.saltybet.com/stats?tournament_id={tournament_id}")
+        tournament: Tournament = {
+            "tournament_id": tournament_id,
+            "mode": GameMode.UNKNOWN,
+            "matches": [],
+        }
+        html = await self._get_html(
+            f"https://www.saltybet.com/stats?tournament_id={tournament_id}"
+        )
         if html is None:
             logger.error("Failed to scrape Tournament")
             return None
@@ -499,7 +592,9 @@ class SaltybetClient:
 
         # Name and Mode
         tournament_name = tree.css_first("#result > strong:nth-child(1)").text()
-        tournament["mode"], tournament["name"] = self._split_tournament_name_and_mode(tournament_name)
+        tournament["mode"], tournament["name"] = self._split_tournament_name_and_mode(
+            tournament_name
+        )
 
         # Skip if unable to determine game mode from title.
         if tournament["mode"] == GameMode.UNKNOWN:
@@ -556,7 +651,9 @@ class SaltybetClient:
             logger.error("Match scraping only available with illuminati membership.")
             return None
 
-        html = await self._get_html(f"https://www.saltybet.com/stats?match_id={match_id}")
+        html = await self._get_html(
+            f"https://www.saltybet.com/stats?match_id={match_id}"
+        )
         if html is None:
             logger.error("Failed to scrape Match")
             return None
@@ -616,10 +713,14 @@ class SaltybetClient:
             logger.error("Compendium scraping only available when logged in.")
             return None
         if not await self.illuminati:
-            logger.error("Compendium scraping only available with illuminati membership.")
+            logger.error(
+                "Compendium scraping only available with illuminati membership."
+            )
             return None
 
-        html = await self._get_html(f"https://www.saltybet.com/compendium?tier={tier.value}")
+        html = await self._get_html(
+            f"https://www.saltybet.com/compendium?tier={tier.value}"
+        )
         if html is None:
             logger.error("Failed to scrape Compendium")
             return None
@@ -644,10 +745,14 @@ class SaltybetClient:
             logger.error("Compendium scraping only available when logged in.")
             return None
         if not await self.illuminati:
-            logger.error("Compendium scraping only available with illuminati membership.")
+            logger.error(
+                "Compendium scraping only available with illuminati membership."
+            )
             return None
 
-        html = await self._get_html(f"https://www.saltybet.com/compendium?tier={tier.value}&character={fighter_id}")
+        html = await self._get_html(
+            f"https://www.saltybet.com/compendium?tier={tier.value}&character={fighter_id}"
+        )
         if html is None:
             logger.error("Failed to scrape Fighter")
             return None
@@ -657,13 +762,23 @@ class SaltybetClient:
             "name": tree.css_first(".statname").text(deep=False).strip(),
             "fighter_id": fighter_id,
             "tier": tier,
-            "life": int(tree.css_first("table.detailedstats > tbody:nth-child(2) > tr:nth-child(2) > td:nth-child(1)").text()),
-            "meter": int(tree.css_first("table.detailedstats > tbody:nth-child(2) > tr:nth-child(2) > td:nth-child(2)").text()),
+            "life": int(
+                tree.css_first(
+                    "table.detailedstats > tbody:nth-child(2) > tr:nth-child(2) > td:nth-child(1)"
+                ).text()
+            ),
+            "meter": int(
+                tree.css_first(
+                    "table.detailedstats > tbody:nth-child(2) > tr:nth-child(2) > td:nth-child(2)"
+                ).text()
+            ),
             "sprite": f"https://www.saltybet.com/images/charanim/{fighter_id}.gif",
             "upgrades": [],
         }
 
-        author = tree.css_first("#basicstats").text(deep=False).strip().replace("by ", "")
+        author = (
+            tree.css_first("#basicstats").text(deep=False).strip().replace("by ", "")
+        )
         if author != "":
             fighter["author"] = author
 
@@ -686,7 +801,9 @@ class SaltybetClient:
                     else:
                         action = action.replace("promote on", "").strip()
                         upgrade["upgrade_type"] = UpgradeType.PROMOTE
-                    upgrade["value"] = int(pendulum.from_format(action, "MMMM DD, YYYY").format("X"))
+                    upgrade["value"] = int(
+                        pendulum.from_format(action, "MMMM DD, YYYY").format("X")
+                    )
                 elif "exhib meter +" in action:
                     upgrade["upgrade_type"] = UpgradeType.METER_INCREASE
                     upgrade["value"] = int(action.replace("exhib meter +", "").strip())
@@ -725,7 +842,7 @@ class SaltybetClient:
             state = await resp.json(content_type="text/html")
         return state
 
-    async def _get_state(self, store=False) -> Match:
+    async def _get_state(self) -> Match:
         state = await self._get_raw_state_json()
 
         out: Match = {}
@@ -765,13 +882,7 @@ class SaltybetClient:
         out["red_bets"] = int(state["p1total"].replace(",", ""))
         out["blue_bets"] = int(state["p2total"].replace(",", ""))
 
-        if store:
-            self._betting_status = out["status"]
-            self._game_mode = out["mode"]
-            self._red_team_name = out["red_team_name"]
-            self._blue_team_name = out["blue_team_name"]
-            self._red_bets = out["red_bets"]
-            self._blue_bets = out["blue_bets"]
+        self._match = out
 
         return out
 
@@ -781,47 +892,72 @@ class SaltybetClient:
         logger.debug("Socket.io Message Received")
         state = await self._get_state()
 
-        # Update only fighters/bets
-        self._red_bets = state["red_bets"]
-        self._blue_bets = state["blue_bets"]
-        self._red_team_name = state["red_team_name"]
-        self._blue_team_name = state["blue_team_name"]
-
         # Fire Triggers
-        betting_status = state["status"]
-        if betting_status != self._betting_status:
-            self._betting_status = betting_status
-            logger.debug(f"Current status changed to {betting_status.name}")
-            await self._trigger_betting_change(betting_status)
+        match_status = state["status"]
+        if match_status != self._last_match_status:
+            self._last_match_status = match_status
+            logger.debug(f"Current status changed to {match_status.name}")
+            await self._trigger_betting_change(match_status)
 
         game_mode = state["mode"]
-        if game_mode != self._game_mode:
-            self._game_mode = game_mode
+        if game_mode != self._last_game_mode:
+            self._last_game_mode = game_mode
             logger.debug(f"Current mode changed to {game_mode.name}")
             await self._trigger_mode_change(game_mode)
 
     async def _trigger_betting_change(self, match_status: MatchStatus):
         await asyncio.gather(
             *[
-                f(match_status, self._red_team_name, self._red_bets, self._blue_team_name, self._blue_bets)
+                f(
+                    match_status,
+                    self._match["red_team_name"],
+                    self._match["red_bets"],
+                    self._match["blue_team_name"],
+                    self._match["blue_bets"],
+                )
                 for f in self._on_betting_change_triggers
             ]
         )
         if match_status == MatchStatus.OPEN:
             await asyncio.gather(
-                *[f(match_status, self._red_team_name, 0, self._blue_team_name, 0) for f in self._on_betting_open_triggers]
+                *[
+                    f(
+                        match_status,
+                        self._match["red_team_name"],
+                        0,
+                        self._match["blue_team_name"],
+                        0,
+                    )
+                    for f in self._on_betting_open_triggers
+                ]
             )
         elif match_status == MatchStatus.LOCKED:
             await asyncio.gather(
                 *[
-                    f(match_status, self._red_team_name, self._red_bets, self._blue_team_name, self._blue_bets)
+                    f(
+                        match_status,
+                        self._match["red_team_name"],
+                        self._match["red_bets"],
+                        self._match["blue_team_name"],
+                        self._match["blue_bets"],
+                    )
                     for f in self._on_betting_locked_triggers
                 ]
             )
-        elif match_status in [MatchStatus.RED_WINS, MatchStatus.BLUE_WINS, MatchStatus.DRAW]:
+        elif match_status in [
+            MatchStatus.RED_WINS,
+            MatchStatus.BLUE_WINS,
+            MatchStatus.DRAW,
+        ]:
             await asyncio.gather(
                 *[
-                    f(match_status, self._red_team_name, self._red_bets, self._blue_team_name, self._blue_bets)
+                    f(
+                        match_status,
+                        self._match["red_team_name"],
+                        self._match["red_bets"],
+                        self._match["blue_team_name"],
+                        self._match["blue_bets"],
+                    )
                     for f in self._on_betting_payout_triggers
                 ]
             )
@@ -829,19 +965,29 @@ class SaltybetClient:
     async def _trigger_mode_change(self, game_mode: GameMode):
         await asyncio.gather(*[f(game_mode) for f in self._on_mode_change_triggers])
         if game_mode == GameMode.TOURNAMENT:
-            await asyncio.gather(*[f(game_mode) for f in self._on_mode_tournament_triggers])
+            await asyncio.gather(
+                *[f(game_mode) for f in self._on_mode_tournament_triggers]
+            )
         elif game_mode == GameMode.EXHIBITION:
-            await asyncio.gather(*[f(game_mode) for f in self._on_mode_exhibition_triggers])
+            await asyncio.gather(
+                *[f(game_mode) for f in self._on_mode_exhibition_triggers]
+            )
         elif game_mode == GameMode.MATCHMAKING:
-            await asyncio.gather(*[f(game_mode) for f in self._on_mode_matchmaking_triggers])
+            await asyncio.gather(
+                *[f(game_mode) for f in self._on_mode_matchmaking_triggers]
+            )
 
     # Event Decorators
-    def on_start(self, func: Callable[[], Awaitable[None]]) -> Callable[[], Awaitable[None]]:
+    def on_start(
+        self, func: Callable[[], Awaitable[None]]
+    ) -> Callable[[], Awaitable[None]]:
         if func not in self._on_start_triggers:
             self._on_start_triggers.append(func)
         return func
 
-    def on_end(self, func: Callable[[], Awaitable[None]]) -> Callable[[], Awaitable[None]]:
+    def on_end(
+        self, func: Callable[[], Awaitable[None]]
+    ) -> Callable[[], Awaitable[None]]:
         if func not in self._on_end_triggers:
             self._on_end_triggers.append(func)
         return func
@@ -874,22 +1020,30 @@ class SaltybetClient:
             self._on_betting_payout_triggers.append(func)
         return func
 
-    def on_mode_change(self, func: Callable[[GameMode], Awaitable[None]]) -> Callable[[GameMode], Awaitable[None]]:
+    def on_mode_change(
+        self, func: Callable[[GameMode], Awaitable[None]]
+    ) -> Callable[[GameMode], Awaitable[None]]:
         if func not in self._on_mode_change_triggers:
             self._on_mode_change_triggers.append(func)
         return func
 
-    def on_mode_tournament(self, func: Callable[[GameMode], Awaitable[None]]) -> Callable[[GameMode], Awaitable[None]]:
+    def on_mode_tournament(
+        self, func: Callable[[GameMode], Awaitable[None]]
+    ) -> Callable[[GameMode], Awaitable[None]]:
         if func not in self._on_mode_tournament_triggers:
             self._on_mode_tournament_triggers.append(func)
         return func
 
-    def on_mode_exhibition(self, func: Callable[[GameMode], Awaitable[None]]) -> Callable[[GameMode], Awaitable[None]]:
+    def on_mode_exhibition(
+        self, func: Callable[[GameMode], Awaitable[None]]
+    ) -> Callable[[GameMode], Awaitable[None]]:
         if func not in self._on_mode_exhibition_triggers:
             self._on_mode_exhibition_triggers.append(func)
         return func
 
-    def on_mode_matchmaking(self, func: Callable[[GameMode], Awaitable[None]]) -> Callable[[GameMode], Awaitable[None]]:
+    def on_mode_matchmaking(
+        self, func: Callable[[GameMode], Awaitable[None]]
+    ) -> Callable[[GameMode], Awaitable[None]]:
         if func not in self._on_mode_matchmaking_triggers:
             self._on_mode_matchmaking_triggers.append(func)
         return func
