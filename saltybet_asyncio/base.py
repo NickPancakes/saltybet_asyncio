@@ -44,8 +44,6 @@ class BasicClient:
         self._tournament_id: int = 0
         self._match_id: int = 0
         self._match: Match = {"status": MatchStatus.UNKNOWN}
-        self._last_match_status: MatchStatus = MatchStatus.UNKNOWN
-        self._last_game_mode: GameMode = GameMode.UNKNOWN
         self._matches_left_in_mode: int = 0
 
     # Async Init / Shutdown
@@ -191,43 +189,43 @@ class BasicClient:
     @property
     async def match(self) -> Match:
         if self._match["status"] == MatchStatus.UNKNOWN:
-            await self._get_state()
+            await self.get_state()
         return self._match
 
     @property
     async def betting_status(self) -> MatchStatus:
         if self._match["status"] == MatchStatus.UNKNOWN:
-            await self._get_state()
+            await self.get_state()
         return self._match["status"]
 
     @property
     async def game_mode(self) -> GameMode:
         if self._match["status"] == MatchStatus.UNKNOWN:
-            await self._get_state()
+            await self.get_state()
         return self._match["mode"]
 
     @property
     async def red_team_name(self) -> str:
         if self._match["status"] == MatchStatus.UNKNOWN:
-            await self._get_state()
+            await self.get_state()
         return self._match["red_team_name"]
 
     @property
     async def blue_team_name(self) -> str:
         if self._match["status"] == MatchStatus.UNKNOWN:
-            await self._get_state()
+            await self.get_state()
         return self._match["blue_team_name"]
 
     @property
     async def red_bets(self) -> int:
         if self._match["status"] == MatchStatus.UNKNOWN:
-            await self._get_state()
+            await self.get_state()
         return self._match["red_bets"]
 
     @property
     async def blue_bets(self) -> int:
         if self._match["status"] == MatchStatus.UNKNOWN:
-            await self._get_state()
+            await self.get_state()
         return self._match["blue_bets"]
 
     # Private Actions
@@ -455,7 +453,7 @@ class BasicClient:
             state = await resp.json(content_type="text/html")
         return state
 
-    async def _get_state(self) -> Match:
+    async def get_state(self) -> Match:
         state = await self._get_raw_state_json()
 
         out: Match = {}

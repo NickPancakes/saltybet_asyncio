@@ -8,7 +8,7 @@ from pprint import pformat
 from random import choice, randint
 
 import aiorun
-from saltybet_asyncio import SideColor, MatchStatus, SaltybetClient
+from saltybet_asyncio import SideColor, Match, SaltybetClient, MatchStatus
 
 if __name__ == "__main__":
 
@@ -50,17 +50,13 @@ if __name__ == "__main__":
         else:
             logger.info("No credentails provided, no betting will take place.")
 
-    @client.on_betting_open
-    async def print_fighters(
-        status: MatchStatus,
-        red_team_name: str,
-        red_bets: int,
-        blue_team_name: str,
-        blue_bets: int,
-    ):
+    @client.on_status_open
+    async def print_fighters(match: Match,):
         global bet_amount
         global bet_side
-        logger.info(f"Bets Open: {red_team_name:^16} vs {blue_team_name:^16}")
+        logger.info(
+            f"Bets Open: {match['red_team_name']:^16} vs {match['blue_team_name']:^16}"
+        )
         if await client.logged_in:
             if await client.illuminati:
                 stats = await client.get_match_stats()
@@ -75,60 +71,49 @@ if __name__ == "__main__":
                     bet_amount = balance
                 await client.place_bet(bet_side, bet_amount)
                 fighter_name = (
-                    red_team_name if bet_side == SideColor.RED else blue_team_name
+                    match["red_team_name"]
+                    if bet_side == SideColor.RED
+                    else match["blue_team_name"]
                 )
                 logger.info(
                     f"Bet ${bet_amount} on '{fighter_name}' on the {bet_side.name} side."
                 )
-        logger.info(f"Bettors:\n{pformat(await client.get_bettors())}")
 
-    @client.on_betting_locked
-    async def print_ratio(
-        status: MatchStatus,
-        red_team_name: str,
-        red_bets: int,
-        blue_team_name: str,
-        blue_bets: int,
-    ):
+    @client.on_status_locked
+    async def print_ratio(match: Match):
         logger.info(
-            f"Bets Locked: {red_team_name:>16} - ${red_bets:<16n} vs {blue_team_name:>16} - ${blue_bets:<16n}"
+            f"Bets Locked: {match['red_team_name']:>16} - ${match['red_bets']:<16n} vs {match['blue_team_name']:>16} - ${match['blue_bets']:<16n}"
         )
-        if red_bets > blue_bets:
-            bet_favor = red_bets / blue_bets
+        if match["red_bets"] > match["blue_bets"]:
+            bet_favor = match["red_bets"] / match["blue_bets"]
             logger.info(
-                f"Bets favor {red_team_name} {bet_favor:.2f}:1 over {blue_team_name}"
+                f"Bets favor {match['red_team_name']} {bet_favor:.2f}:1 over {match['blue_team_name']}"
             )
-        elif blue_bets > red_bets:
-            bet_favor = blue_bets / red_bets
+        elif match["blue_bets"] > match["red_bets"]:
+            bet_favor = match["blue_bets"] / match["red_bets"]
             logger.info(
-                f"Bets favor {blue_team_name} {bet_favor:.2f}:1 over {red_team_name}"
+                f"Bets favor {match['blue_team_name']} {bet_favor:.2f}:1 over {match['red_team_name']}"
             )
         else:
             logger.info(f"Bets are 1:1!")
         logger.info(f"Bettors:\n{pformat(await client.get_bettors())}")
 
-    @client.on_betting_payout
-    async def print_win(
-        status: MatchStatus,
-        red_team_name: str,
-        red_bets: int,
-        blue_team_name: str,
-        blue_bets: int,
-    ):
+    @client.on_status_complete
+    async def print_win(match: Match):
         global bet_amount
         global bet_side
 
         won = False
-        if status == MatchStatus.RED_WINS:
-            winning_team_name = red_team_name
-            winning_bets = red_bets
-            losing_bets = blue_bets
+        if match["status"] == MatchStatus.RED_WINS:
+            winning_team_name = match["red_team_name"]
+            winning_bets = match["red_bets"]
+            losing_bets = match["blue_bets"]
             if bet_side == SideColor.RED:
                 won = True
-        elif status == MatchStatus.BLUE_WINS:
-            winning_team_name = blue_team_name
-            winning_bets = blue_bets
-            losing_bets = red_bets
+        elif match["status"] == MatchStatus.BLUE_WINS:
+            winning_team_name = match["blue_team_name"]
+            winning_bets = match["blue_bets"]
+            losing_bets = match["red_bets"]
             if bet_side == SideColor.BLUE:
                 won = True
 

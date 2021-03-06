@@ -11,6 +11,7 @@ from .base import BasicClient
 from .types import (
     GameMode,
     MatchStatus,
+    Match,
 )
 
 logger = logging.getLogger(__name__)
@@ -20,25 +21,22 @@ class WebsocketClient(BasicClient):
     def __init__(self):
         # State
         self.running: bool = False
+        self._last_match_status: MatchStatus = MatchStatus.UNKNOWN
+        self._last_game_mode: GameMode = GameMode.UNKNOWN
 
         # Connections
         self.sio: AsyncClient = None
 
         # Triggers
+        # Start / End
         self._on_start_triggers: List[Callable[[], Awaitable[None]]] = []
         self._on_end_triggers: List[Callable[[], Awaitable[None]]] = []
-        self._on_betting_change_triggers: List[
-            Callable[[MatchStatus, str, int, str, int], Awaitable[None]]
-        ] = []
-        self._on_betting_open_triggers: List[
-            Callable[[MatchStatus, str, int, str, int], Awaitable[None]]
-        ] = []
-        self._on_betting_locked_triggers: List[
-            Callable[[MatchStatus, str, int, str, int], Awaitable[None]]
-        ] = []
-        self._on_betting_payout_triggers: List[
-            Callable[[MatchStatus, str, int, str, int], Awaitable[None]]
-        ] = []
+        # MatchStatus Change
+        self._on_status_change_triggers: List[Callable[[Match], Awaitable[None]]] = []
+        self._on_status_open_triggers: List[Callable[[Match], Awaitable[None]]] = []
+        self._on_status_locked_triggers: List[Callable[[Match], Awaitable[None]]] = []
+        self._on_status_complete_triggers: List[Callable[[Match], Awaitable[None]]] = []
+        # GameMode Change
         self._on_mode_change_triggers: List[Callable[[GameMode], Awaitable[None]]] = []
         self._on_mode_tournament_triggers: List[
             Callable[[GameMode], Awaitable[None]]
@@ -101,92 +99,52 @@ class WebsocketClient(BasicClient):
     async def _on_message(self):
         """Parses state.json when indicated to do so by websocket"""
         logger.debug("Socket.io Message Received")
-        state = await self._get_state()
+        state: Match = await self.get_state()
+        await self._trigger_events(state)
+
+    async def _trigger_events(self, state: Match):
+        """Fires registered event triggers based on State"""
 
         # Fire Triggers
-        match_status = state["status"]
+        match_status: MatchStatus = state["status"]
         if match_status != self._last_match_status:
             self._last_match_status = match_status
             logger.debug(f"Current status changed to {match_status.name}")
-            await self._trigger_betting_change(match_status)
+            await self._trigger_status_change(state)
 
-        game_mode = state["mode"]
+        game_mode: GameMode = state["mode"]
         if game_mode != self._last_game_mode:
             self._last_game_mode = game_mode
             logger.debug(f"Current mode changed to {game_mode.name}")
             await self._trigger_mode_change(game_mode)
 
-    async def _trigger_betting_change(self, match_status: MatchStatus):
-        await asyncio.gather(
-            *[
-                f(
-                    match_status,
-                    self._match["red_team_name"],
-                    self._match["red_bets"],
-                    self._match["blue_team_name"],
-                    self._match["blue_bets"],
-                )
-                for f in self._on_betting_change_triggers
-            ]
-        )
-        if match_status == MatchStatus.OPEN:
-            await asyncio.gather(
-                *[
-                    f(
-                        match_status,
-                        self._match["red_team_name"],
-                        0,
-                        self._match["blue_team_name"],
-                        0,
-                    )
-                    for f in self._on_betting_open_triggers
-                ]
-            )
-        elif match_status == MatchStatus.LOCKED:
-            await asyncio.gather(
-                *[
-                    f(
-                        match_status,
-                        self._match["red_team_name"],
-                        self._match["red_bets"],
-                        self._match["blue_team_name"],
-                        self._match["blue_bets"],
-                    )
-                    for f in self._on_betting_locked_triggers
-                ]
-            )
-        elif match_status in [
+    async def _trigger_status_change(self, match: Match):
+        trigger_funcs: List[Callable[[Match], Awaitable[None]]] = []
+        trigger_funcs.extend(self._on_status_change_triggers)
+        if match["status"] == MatchStatus.OPEN:
+            trigger_funcs.extend(self._on_status_open_triggers)
+        elif match["status"] == MatchStatus.LOCKED:
+            trigger_funcs.extend(self._on_status_locked_triggers)
+        elif match["status"] in [
             MatchStatus.RED_WINS,
             MatchStatus.BLUE_WINS,
             MatchStatus.DRAW,
         ]:
-            await asyncio.gather(
-                *[
-                    f(
-                        match_status,
-                        self._match["red_team_name"],
-                        self._match["red_bets"],
-                        self._match["blue_team_name"],
-                        self._match["blue_bets"],
-                    )
-                    for f in self._on_betting_payout_triggers
-                ]
-            )
+            trigger_funcs.extend(self._on_status_complete_triggers)
+        # Execute all async
+        await asyncio.gather(*[f(match) for f in trigger_funcs])
 
     async def _trigger_mode_change(self, game_mode: GameMode):
-        await asyncio.gather(*[f(game_mode) for f in self._on_mode_change_triggers])
+        trigger_funcs: List[Callable[[GameMode], Awaitable[None]]] = []
+        trigger_funcs.extend(self._on_mode_change_triggers)
         if game_mode == GameMode.TOURNAMENT:
-            await asyncio.gather(
-                *[f(game_mode) for f in self._on_mode_tournament_triggers]
-            )
+            trigger_funcs.extend(self._on_mode_tournament_triggers)
         elif game_mode == GameMode.EXHIBITION:
-            await asyncio.gather(
-                *[f(game_mode) for f in self._on_mode_exhibition_triggers]
-            )
+            trigger_funcs.extend(self._on_mode_exhibition_triggers)
         elif game_mode == GameMode.MATCHMAKING:
-            await asyncio.gather(
-                *[f(game_mode) for f in self._on_mode_matchmaking_triggers]
-            )
+            trigger_funcs.extend(self._on_mode_matchmaking_triggers)
+        # Execute all async
+        await asyncio.gather(*[f(game_mode) for f in trigger_funcs])
 
     # Event Decorators
     def on_start(
@@ -203,32 +161,32 @@ class WebsocketClient(BasicClient):
             self._on_end_triggers.append(func)
         return func
 
-    def on_betting_change(
-        self, func: Callable[[MatchStatus, str, int, str, int], Awaitable[None]]
-    ) -> Callable[[MatchStatus, str, int, str, int], Awaitable[None]]:
-        if func not in self._on_betting_change_triggers:
-            self._on_betting_change_triggers.append(func)
+    def on_status_change(
+        self, func: Callable[[Match], Awaitable[None]]
+    ) -> Callable[[Match], Awaitable[None]]:
+        if func not in self._on_status_change_triggers:
+            self._on_status_change_triggers.append(func)
         return func
 
-    def on_betting_open(
-        self, func: Callable[[MatchStatus, str, int, str, int], Awaitable[None]]
-    ) -> Callable[[MatchStatus, str, int, str, int], Awaitable[None]]:
-        if func not in self._on_betting_open_triggers:
-            self._on_betting_open_triggers.append(func)
+    def on_status_open(
+        self, func: Callable[[Match], Awaitable[None]]
+    ) -> Callable[[Match], Awaitable[None]]:
+        if func not in self._on_status_open_triggers:
+            self._on_status_open_triggers.append(func)
         return func
 
-    def on_betting_locked(
-        self, func: Callable[[MatchStatus, str, int, str, int], Awaitable[None]]
-    ) -> Callable[[MatchStatus, str, int, str, int], Awaitable[None]]:
-        if func not in self._on_betting_locked_triggers:
-            self._on_betting_locked_triggers.append(func)
+    def on_status_locked(
+        self, func: Callable[[Match], Awaitable[None]]
+    ) -> Callable[[Match], Awaitable[None]]:
+        if func not in self._on_status_locked_triggers:
+            self._on_status_locked_triggers.append(func)
         return func
 
-    def on_betting_payout(
-        self, func: Callable[[MatchStatus, str, int, str, int], Awaitable[None]]
-    ) -> Callable[[MatchStatus, str, int, str, int], Awaitable[None]]:
-        if func not in self._on_betting_payout_triggers:
-            self._on_betting_payout_triggers.append(func)
+    def on_status_complete(
+        self, func: Callable[[Match], Awaitable[None]]
+    ) -> Callable[[Match], Awaitable[None]]:
+        if func not in self._on_status_complete_triggers:
+            self._on_status_complete_triggers.append(func)
         return func
 
     def on_mode_change(
