@@ -96,23 +96,35 @@ class WebsocketClient(BasicClient):
         await super().shutdown()
 
     # SocketIO Connection / Event Handling
+
     async def _on_message(self):
         """Parses state.json when indicated to do so by websocket"""
         logger.debug("Socket.io Message Received")
-        state: Match = await self.get_state()
-        await self._trigger_events(state)
 
-    async def _trigger_events(self, state: Match):
+        # Fetch state.json
+        match: Match = await self.get_state()
+
+        # Add in Illuminati Stats (ajax_get_stats.php) if available
+        if await self.illuminati:
+            illum_match_stats = await self.get_match_stats()
+            if illum_match_stats:
+                match.update(illum_match_stats)
+                self._match = match
+
+        await self._trigger_events(match)
+
+    # Event Triggers
+    async def _trigger_events(self, match: Match):
         """Fires registered event triggers based on State"""
 
         # Fire Triggers
-        match_status: MatchStatus = state["status"]
+        match_status: MatchStatus = match["status"]
         if match_status != self._last_match_status:
             self._last_match_status = match_status
             logger.debug(f"Current status changed to {match_status.name}")
-            await self._trigger_status_change(state)
+            await self._trigger_status_change(match)
 
-        game_mode: GameMode = state["mode"]
+        game_mode: GameMode = match["mode"]
         if game_mode != self._last_game_mode:
             self._last_game_mode = game_mode
             logger.debug(f"Current mode changed to {game_mode.name}")
