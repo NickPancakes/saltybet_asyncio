@@ -44,7 +44,7 @@ class BasicClient:
         self._tournament_id: int = 0
         self._match_id: int = 0
         self._match: Match = {"status": MatchStatus.UNKNOWN}
-        self._matches_left_in_mode: int = 0
+        self._matches_left: int = 0
 
     # Async Init / Shutdown
 
@@ -193,10 +193,16 @@ class BasicClient:
         return self._match
 
     @property
-    async def betting_status(self) -> MatchStatus:
+    async def match_status(self) -> MatchStatus:
         if self._match["status"] == MatchStatus.UNKNOWN:
             await self.get_state()
         return self._match["status"]
+
+    @property
+    async def matches_remaining(self) -> int:
+        if self._match["status"] == MatchStatus.UNKNOWN:
+            await self.get_state()
+        return self._matches_left
 
     @property
     async def game_mode(self) -> GameMode:
@@ -446,6 +452,41 @@ class BasicClient:
             logger.warn(f"Unhandled status: {status}")
         return out
 
+    def _alert_to_GameMode(self, alert: str) -> GameMode:
+        game_mode: GameMode = GameMode.UNKNOWN
+        if alert == "Tournament mode start!":
+            game_mode = GameMode.TOURNAMENT
+        elif alert == "Exhibition mode start!":
+            game_mode = GameMode.EXHIBITION
+        else:
+            logger.warn(f"Unable to parse game mode from: {alert}")
+        return game_mode
+
+    def _remaining_to_GameMode(self, remaining: str) -> GameMode:
+        game_mode: GameMode = GameMode.UNKNOWN
+        if remaining.endswith("in the bracket!"):
+            game_mode = GameMode.TOURNAMENT
+        elif remaining.endswith("exhibition matches left!"):
+            game_mode = GameMode.EXHIBITION
+        elif remaining.endswith("next tournament!"):
+            game_mode = GameMode.MATCHMAKING
+        else:
+            logger.warn(f"Unable to parse game mode from: {remaining}")
+        return game_mode
+
+    def _parse_remaining_rounds(self, remaining: str) -> Optional[int]:
+        until_next: Optional[int] = None
+        for known_line in [
+            "exhibition matches left!",
+            "in the bracket!",
+            "next tournament!",
+        ]:
+            if remaining.endswith(known_line):
+                until_next = int(remaining.split(" ")[0])
+        if until_next is None:
+            logger.warn(f"Unable to parse remaining rounds from: {remaining}")
+        return until_next
+
     # State Parsing
     async def _get_raw_state_json(self) -> dict:
         state = {}
@@ -458,27 +499,19 @@ class BasicClient:
 
         out: Match = {}
 
+        # MatchStatus
         out["status"] = self._status_to_MatchStatus(state["status"])
 
-        # Determine GameMode
-        until_next_mode: int = 0
-        out["mode"] = GameMode.UNKNOWN
-        if state["alert"] == "Tournament mode start!":
-            out["mode"] = GameMode.TOURNAMENT
-        elif state["remaining"].endswith("in the bracket!"):
-            until_next_mode = int(state["remaining"].split(" ")[0])
-            out["mode"] = GameMode.TOURNAMENT
-        elif state["alert"] == "Exhibition mode start!":
-            out["mode"] = GameMode.EXHIBITION
-        elif state["remaining"].endswith("exhibition matches left!"):
-            until_next_mode = int(state["remaining"].split(" ")[0])
-            out["mode"] = GameMode.EXHIBITION
-        elif state["remaining"].endswith("next tournament!"):
-            until_next_mode = int(state["remaining"].split(" ")[0])
-            out["mode"] = GameMode.MATCHMAKING
-        else:
-            logger.debug(f"Unhandled alert: {state['alert']}")
-        self._matches_left_in_mode = until_next_mode
+        # GameMode
+        mode: GameMode = self._alert_to_GameMode(state["alert"])
+        if mode == GameMode.UNKNOWN:
+            mode = self._remaining_to_GameMode(state["remaining"])
+        out["mode"] = mode
+
+        # Matches Remaining
+        matches_left = self._parse_remaining_rounds(state["remaining"])
+        if matches_left:
+            self._matches_left = matches_left
 
         p1name = state["p1name"]
         if not p1name.startswith("Team "):
