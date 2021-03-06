@@ -2,7 +2,7 @@
 
 import logging
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Tuple
 
 import pendulum
 from aiohttp import ClientSession, TCPConnector
@@ -41,8 +41,6 @@ class BasicClient:
         self._logged_in: bool = False
         self._last_login: pendulum.DateTime = pendulum.now().subtract(days=1)
         self._illuminati: bool = False
-        self._tournament_id: int = 0
-        self._match_id: int = 0
         self._match: Match = {"status": MatchStatus.UNKNOWN}
         self._matches_left: int = 0
 
@@ -61,7 +59,7 @@ class BasicClient:
         logger.info("Closing HTTP Session.")
         await self.session.close()
 
-    # Async Properties
+    # Login-related Async Properties
     @property
     async def logged_in(self) -> bool:
         if self.email is None or self.password is None:
@@ -95,144 +93,6 @@ class BasicClient:
             logger.error("Illuminati status cannot be checked without being logged in.")
             return False
         return self._illuminati
-
-    @property
-    async def balance(self) -> int:
-        try:
-            await self._login()
-        except HTTPUnauthorized:
-            logger.error("Balance only available when logged in.")
-            return 0
-
-        balance = 0
-
-        async with self.session.get("https://www.saltybet.com/") as resp:
-            html = await resp.read()
-            if html is None:
-                logger.error("Failed to get balance.")
-                return 0
-
-            selector = "#balance"
-            for node in HTMLParser(html).css(selector):
-                balance = int(node.text().replace(",", ""))
-
-        return balance
-
-    @property
-    async def tournament_id(self) -> Optional[int]:
-        try:
-            await self._login()
-        except HTTPUnauthorized:
-            logger.error("Tournament ID only available when logged in.")
-            return None
-
-        if not await self.illuminati:
-            logger.error("Tournament ID only available with illuminati membership.")
-            return None
-
-        if self._tournament_id != 0:
-            return self._tournament_id
-
-        async with self.session.get(
-            "https://www.saltybet.com/stats?tournamentstats=1&page=1"
-        ) as resp:
-            html = await resp.read()
-            if html is None:
-                logger.error("Failed to get Tournament ID")
-                return None
-
-            top_result_node = HTMLParser(html).css_first(
-                ".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > td:nth-child(1) > a:nth-child(1)"
-            )
-            if top_result_node is None:
-                logger.error("Failed to get Tournament ID")
-                return None
-            link = top_result_node.attrs["href"]
-            self._tournament_id = int(link.split("=")[-1])
-        return self._tournament_id
-
-    @property
-    async def match_id(self) -> Optional[int]:
-        try:
-            await self._login()
-        except HTTPUnauthorized:
-            logger.error("Match ID only available when logged in.")
-            return None
-        if not await self.illuminati:
-            logger.error("Match ID only available with illuminati membership.")
-            return None
-
-        if self._match_id != 0:
-            return self._match_id
-
-        tournament_id = await self.tournament_id
-        async with self.session.get(
-            f"https://www.saltybet.com/stats?tournament_id={tournament_id}"
-        ) as resp:
-            html = await resp.read()
-            if html is None:
-                logger.error("Failed to get Match ID")
-                return None
-
-            tree = HTMLParser(html)
-            top_row = tree.css_first(
-                ".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > td:nth-child(1) > a:nth-child(1)"
-            )
-            if top_row is None:
-                logger.error("Failed to get Match ID")
-                return None
-            match_link = top_row.attrs["href"]
-            self._match_id = match_link.split("=")[1]
-        return self._match_id
-
-    # Properties parsed from state.json
-    @property
-    async def match(self) -> Match:
-        if self._match["status"] == MatchStatus.UNKNOWN:
-            await self.get_state()
-        return self._match
-
-    @property
-    async def match_status(self) -> MatchStatus:
-        if self._match["status"] == MatchStatus.UNKNOWN:
-            await self.get_state()
-        return self._match["status"]
-
-    @property
-    async def matches_remaining(self) -> int:
-        if self._match["status"] == MatchStatus.UNKNOWN:
-            await self.get_state()
-        return self._matches_left
-
-    @property
-    async def game_mode(self) -> GameMode:
-        if self._match["status"] == MatchStatus.UNKNOWN:
-            await self.get_state()
-        return self._match["mode"]
-
-    @property
-    async def red_team_name(self) -> str:
-        if self._match["status"] == MatchStatus.UNKNOWN:
-            await self.get_state()
-        return self._match["red_team_name"]
-
-    @property
-    async def blue_team_name(self) -> str:
-        if self._match["status"] == MatchStatus.UNKNOWN:
-            await self.get_state()
-        return self._match["blue_team_name"]
-
-    @property
-    async def red_bets(self) -> int:
-        if self._match["status"] == MatchStatus.UNKNOWN:
-            await self.get_state()
-        return self._match["red_bets"]
-
-    @property
-    async def blue_bets(self) -> int:
-        if self._match["status"] == MatchStatus.UNKNOWN:
-            await self.get_state()
-        return self._match["blue_bets"]
 
     # Private Actions
     async def _login(self):
@@ -333,6 +193,148 @@ class BasicClient:
         if until_next is None:
             logger.warn(f"Unable to parse remaining rounds from: {remaining}")
         return until_next
+
+    async def _get_tournament_id(self) -> Optional[int]:
+        try:
+            await self._login()
+        except HTTPUnauthorized:
+            logger.error("Tournament ID only available when logged in.")
+            return None
+
+        if not await self.illuminati:
+            logger.error("Tournament ID only available with illuminati membership.")
+            return None
+
+        tournament_id: int = 0
+
+        async with self.session.get(
+            "https://www.saltybet.com/stats?tournamentstats=1&page=1"
+        ) as resp:
+            html = await resp.read()
+            if html is None:
+                logger.error("Failed to get Tournament ID")
+                return None
+
+            top_result_node = HTMLParser(html).css_first(
+                ".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > td:nth-child(1) > a:nth-child(1)"
+            )
+            if top_result_node is None:
+                logger.error("Failed to get Tournament ID")
+                return None
+            link = top_result_node.attrs["href"]
+            tournament_id = int(link.split("=")[-1])
+        return tournament_id
+
+    async def _get_match_id(self, tournament_id: int = None) -> Optional[int]:
+        tournament_id = tournament_id or await self._get_tournament_id
+        if tournament_id is None:
+            return None
+        match_id: int = 0
+        async with self.session.get(
+            f"https://www.saltybet.com/stats?tournament_id={tournament_id}"
+        ) as resp:
+            html = await resp.read()
+            if html is None:
+                logger.error("Failed to get Match ID")
+                return None
+
+            tree = HTMLParser(html)
+            top_row = tree.css_first(
+                ".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > td:nth-child(1) > a:nth-child(1)"
+            )
+            if top_row is None:
+                logger.error("Failed to get Match ID")
+                return None
+            match_link = top_row.attrs["href"]
+            match_id = match_link.split("=")[1]
+        return match_id
+
+    async def _get_tournament_and_match_id(self) -> Tuple[Optional[int], Optional[int]]:
+        tournament_id: int = self._get_tournament_id()
+        match_id: int = self._get_match_id(tournament_id)
+        return (tournament_id, match_id)
+
+    # Async Properties
+    @property
+    async def balance(self) -> int:
+        try:
+            await self._login()
+        except HTTPUnauthorized:
+            logger.error("Balance only available when logged in.")
+            return 0
+
+        balance = 0
+
+        async with self.session.get("https://www.saltybet.com/") as resp:
+            html = await resp.read()
+            if html is None:
+                logger.error("Failed to get balance.")
+                return 0
+
+            selector = "#balance"
+            for node in HTMLParser(html).css(selector):
+                balance = int(node.text().replace(",", ""))
+
+        return balance
+
+    @property
+    async def tournament_id(self) -> Optional[int]:
+        tournament_id = await self._get_tournament_id()
+        return tournament_id
+
+    @property
+    async def match_id(self) -> Optional[int]:
+        _, match_id = await self._get_tournament_and_match_id()
+        return match_id
+
+    # Properties parsed from state.json
+    @property
+    async def match(self) -> Match:
+        if self._match["status"] == MatchStatus.UNKNOWN:
+            await self.get_state()
+        return self._match
+
+    @property
+    async def match_status(self) -> MatchStatus:
+        if self._match["status"] == MatchStatus.UNKNOWN:
+            await self.get_state()
+        return self._match["status"]
+
+    @property
+    async def matches_remaining(self) -> int:
+        if self._match["status"] == MatchStatus.UNKNOWN:
+            await self.get_state()
+        return self._matches_left
+
+    @property
+    async def game_mode(self) -> GameMode:
+        if self._match["status"] == MatchStatus.UNKNOWN:
+            await self.get_state()
+        return self._match["mode"]
+
+    @property
+    async def red_team_name(self) -> str:
+        if self._match["status"] == MatchStatus.UNKNOWN:
+            await self.get_state()
+        return self._match["red_team_name"]
+
+    @property
+    async def blue_team_name(self) -> str:
+        if self._match["status"] == MatchStatus.UNKNOWN:
+            await self.get_state()
+        return self._match["blue_team_name"]
+
+    @property
+    async def red_bets(self) -> int:
+        if self._match["status"] == MatchStatus.UNKNOWN:
+            await self.get_state()
+        return self._match["red_bets"]
+
+    @property
+    async def blue_bets(self) -> int:
+        if self._match["status"] == MatchStatus.UNKNOWN:
+            await self.get_state()
+        return self._match["blue_bets"]
 
     # Public Actions
     async def login(self, email: str, password: str):
