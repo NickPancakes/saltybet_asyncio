@@ -102,6 +102,74 @@ class ScraperClient(BasicClient):
                     break
         return out
 
+    # Tournament/Match ID Scraping
+    async def _get_tournament_id(self) -> Optional[int]:
+        try:
+            await self._login()
+        except HTTPUnauthorized:
+            logger.error("Tournament ID only available when logged in.")
+            return None
+
+        if not await self.illuminati:
+            logger.error("Tournament ID only available with illuminati membership.")
+            return None
+
+        html = await self._get_html(
+            "https://www.saltybet.com/stats?tournamentstats=1&page=1"
+        )
+        if html is None:
+            logger.error("Failed to get Tournament ID")
+            return None
+
+        top_result_node = HTMLParser(html).css_first(
+            ".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > td:nth-child(1) > a:nth-child(1)"
+        )
+        if top_result_node is None:
+            logger.error("Failed to get Tournament ID")
+            return None
+        link = top_result_node.attrs["href"]
+        tournament_id = int(link.split("=")[-1])
+        return tournament_id
+
+    async def _get_match_id(self, tournament_id: int = None) -> Optional[int]:
+        tournament_id = tournament_id or await self._get_tournament_id()
+        if tournament_id is None:
+            return None
+
+        html = await self._get_html(
+            f"https://www.saltybet.com/stats?tournament_id={tournament_id}"
+        )
+        if html is None:
+            logger.error("Failed to get Match ID")
+            return None
+
+        tree = HTMLParser(html)
+        top_row = tree.css_first(
+            ".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > td:nth-child(1) > a:nth-child(1)"
+        )
+        if top_row is None:
+            logger.error("Failed to get Match ID")
+            return None
+        match_link = top_row.attrs["href"]
+        match_id = match_link.split("=")[1]
+        return match_id
+
+    async def _get_tournament_and_match_id(self) -> Tuple[Optional[int], Optional[int]]:
+        tournament_id = await self._get_tournament_id()
+        match_id = await self._get_match_id(tournament_id)
+        return (tournament_id, match_id)
+
+    # Async Properties
+    @property
+    async def tournament_id(self) -> Optional[int]:
+        tournament_id = await self._get_tournament_id()
+        return tournament_id
+
+    @property
+    async def match_id(self) -> Optional[int]:
+        _, match_id = await self._get_tournament_and_match_id()
+        return match_id
+
     def _split_tournament_name_and_mode(
         self, tournament_name: str
     ) -> Tuple[GameMode, str]:
