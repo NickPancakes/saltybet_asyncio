@@ -277,6 +277,63 @@ class BasicClient:
             jresp = await resp.json(content_type="text/html")
         return jresp
 
+    async def _get_raw_state_json(self) -> dict:
+        state = {}
+        async with self.session.get("https://www.saltybet.com/state.json") as resp:
+            state = await resp.json(content_type="text/html")
+        return state
+
+    # State Parsing
+    def _status_to_MatchStatus(self, status: str) -> MatchStatus:
+        # Determine BettingStatus
+        out = MatchStatus.UNKNOWN
+        if status == "open":
+            out = MatchStatus.OPEN
+        elif status == "locked":
+            out = MatchStatus.LOCKED
+        elif status == "1":
+            out = MatchStatus.RED_WINS
+        elif status == "2":
+            out = MatchStatus.BLUE_WINS
+        else:
+            logger.warn(f"Unhandled status: {status}")
+        return out
+
+    def _alert_to_GameMode(self, alert: str) -> GameMode:
+        game_mode: GameMode = GameMode.UNKNOWN
+        if alert == "Tournament mode start!":
+            game_mode = GameMode.TOURNAMENT
+        elif alert == "Exhibition mode start!":
+            game_mode = GameMode.EXHIBITION
+        else:
+            logger.warn(f"Unable to parse game mode from: {alert}")
+        return game_mode
+
+    def _remaining_to_GameMode(self, remaining: str) -> GameMode:
+        game_mode: GameMode = GameMode.UNKNOWN
+        if remaining.endswith("in the bracket!"):
+            game_mode = GameMode.TOURNAMENT
+        elif remaining.endswith("exhibition matches left!"):
+            game_mode = GameMode.EXHIBITION
+        elif remaining.endswith("next tournament!"):
+            game_mode = GameMode.MATCHMAKING
+        else:
+            logger.warn(f"Unable to parse game mode from: {remaining}")
+        return game_mode
+
+    def _parse_remaining_rounds(self, remaining: str) -> Optional[int]:
+        until_next: Optional[int] = None
+        for known_line in [
+            "exhibition matches left!",
+            "in the bracket!",
+            "next tournament!",
+        ]:
+            if remaining.endswith(known_line):
+                until_next = int(remaining.split(" ")[0])
+        if until_next is None:
+            logger.warn(f"Unable to parse remaining rounds from: {remaining}")
+        return until_next
+
     # Public Actions
     async def login(self, email: str, password: str):
         self.email = email
@@ -437,95 +494,42 @@ class BasicClient:
             stats["blue_fighters"] = [blue_1]
         return stats
 
-    def _status_to_MatchStatus(self, status: str) -> MatchStatus:
-        # Determine BettingStatus
-        out = MatchStatus.UNKNOWN
-        if status == "open":
-            out = MatchStatus.OPEN
-        elif status == "locked":
-            out = MatchStatus.LOCKED
-        elif status == "1":
-            out = MatchStatus.RED_WINS
-        elif status == "2":
-            out = MatchStatus.BLUE_WINS
-        else:
-            logger.warn(f"Unhandled status: {status}")
-        return out
-
-    def _alert_to_GameMode(self, alert: str) -> GameMode:
-        game_mode: GameMode = GameMode.UNKNOWN
-        if alert == "Tournament mode start!":
-            game_mode = GameMode.TOURNAMENT
-        elif alert == "Exhibition mode start!":
-            game_mode = GameMode.EXHIBITION
-        else:
-            logger.warn(f"Unable to parse game mode from: {alert}")
-        return game_mode
-
-    def _remaining_to_GameMode(self, remaining: str) -> GameMode:
-        game_mode: GameMode = GameMode.UNKNOWN
-        if remaining.endswith("in the bracket!"):
-            game_mode = GameMode.TOURNAMENT
-        elif remaining.endswith("exhibition matches left!"):
-            game_mode = GameMode.EXHIBITION
-        elif remaining.endswith("next tournament!"):
-            game_mode = GameMode.MATCHMAKING
-        else:
-            logger.warn(f"Unable to parse game mode from: {remaining}")
-        return game_mode
-
-    def _parse_remaining_rounds(self, remaining: str) -> Optional[int]:
-        until_next: Optional[int] = None
-        for known_line in [
-            "exhibition matches left!",
-            "in the bracket!",
-            "next tournament!",
-        ]:
-            if remaining.endswith(known_line):
-                until_next = int(remaining.split(" ")[0])
-        if until_next is None:
-            logger.warn(f"Unable to parse remaining rounds from: {remaining}")
-        return until_next
-
     # State Parsing
-    async def _get_raw_state_json(self) -> dict:
-        state = {}
-        async with self.session.get("https://www.saltybet.com/state.json") as resp:
-            state = await resp.json(content_type="text/html")
-        return state
-
     async def get_state(self) -> Match:
         state = await self._get_raw_state_json()
 
-        out: Match = {}
+        match: Match = {}
 
         # MatchStatus
-        out["status"] = self._status_to_MatchStatus(state["status"])
+        match["status"] = self._status_to_MatchStatus(state["status"])
 
         # GameMode
         mode: GameMode = self._alert_to_GameMode(state["alert"])
         if mode == GameMode.UNKNOWN:
             mode = self._remaining_to_GameMode(state["remaining"])
-        out["mode"] = mode
+        match["mode"] = mode
 
         # Matches Remaining
         matches_left = self._parse_remaining_rounds(state["remaining"])
         if matches_left:
             self._matches_left = matches_left
 
+        # Red Team
         p1name = state["p1name"]
         if not p1name.startswith("Team "):
-            out["red_fighters"] = [{"name": p1name}]
-        out["red_team_name"] = p1name
+            match["red_fighters"] = [{"name": p1name}]
+        match["red_team_name"] = p1name
 
+        # Blue Team
         p2name = state["p2name"]
         if not p2name.startswith("Team "):
-            out["blue_fighters"] = [{"name": p2name}]
-        out["blue_team_name"] = p2name
+            match["blue_fighters"] = [{"name": p2name}]
+        match["blue_team_name"] = p2name
 
-        out["red_bets"] = int(state["p1total"].replace(",", ""))
-        out["blue_bets"] = int(state["p2total"].replace(",", ""))
+        # Bets
+        match["red_bets"] = int(state["p1total"].replace(",", ""))
+        match["blue_bets"] = int(state["p2total"].replace(",", ""))
 
-        self._match = out
+        self._match = match
 
-        return out
+        return match
