@@ -250,8 +250,8 @@ class BasicClient:
         return match_id
 
     async def _get_tournament_and_match_id(self) -> Tuple[Optional[int], Optional[int]]:
-        tournament_id: int = self._get_tournament_id()
-        match_id: int = self._get_match_id(tournament_id)
+        tournament_id = await self._get_tournament_id()
+        match_id = await self._get_match_id(tournament_id)
         return (tournament_id, match_id)
 
     # Async Properties
