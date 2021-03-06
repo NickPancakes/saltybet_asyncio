@@ -120,14 +120,18 @@ class WebsocketClient(BasicClient):
         # Fire Triggers
         match_status: MatchStatus = match["status"]
         if match_status != self._last_match_status:
+            logger.debug(
+                f"Match status changed from {self._last_match_status} to {match_status.name}"
+            )
             self._last_match_status = match_status
-            logger.debug(f"Current status changed to {match_status.name}")
             await self._trigger_status_change(match)
 
         game_mode: GameMode = match["mode"]
         if game_mode != self._last_game_mode:
+            logger.debug(
+                f"Game mode changed from {self._last_game_mode.name} to {game_mode.name}"
+            )
             self._last_game_mode = game_mode
-            logger.debug(f"Current mode changed to {game_mode.name}")
             await self._trigger_mode_change(game_mode)
 
     async def _trigger_status_change(self, match: Match):
