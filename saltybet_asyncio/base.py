@@ -226,7 +226,7 @@ class BasicClient:
         return tournament_id
 
     async def _get_match_id(self, tournament_id: int = None) -> Optional[int]:
-        tournament_id = tournament_id or await self._get_tournament_id
+        tournament_id = tournament_id or await self._get_tournament_id()
         if tournament_id is None:
             return None
         match_id: int = 0
