@@ -161,12 +161,14 @@ class BasicClient:
 
     def _alert_to_GameMode(self, alert: str) -> GameMode:
         game_mode: GameMode = GameMode.UNKNOWN
-        if alert == "Tournament mode start!":
+        if alert == "":
+            return game_mode
+        elif alert == "Tournament mode start!":
             game_mode = GameMode.TOURNAMENT
         elif alert == "Exhibition mode start!":
             game_mode = GameMode.EXHIBITION
         else:
-            logger.warn(f"Unable to parse game mode from: {alert}")
+            logger.warn(f"Unable to parse game mode from alert: {alert}")
         return game_mode
 
     def _remaining_to_GameMode(self, remaining: str) -> GameMode:
@@ -178,7 +180,7 @@ class BasicClient:
         elif remaining.endswith("next tournament!"):
             game_mode = GameMode.MATCHMAKING
         else:
-            logger.warn(f"Unable to parse game mode from: {remaining}")
+            logger.warn(f"Unable to parse game mode from remaining: {remaining}")
         return game_mode
 
     def _parse_remaining_rounds(self, remaining: str) -> Optional[int]:
@@ -193,7 +195,6 @@ class BasicClient:
         if until_next is None:
             logger.warn(f"Unable to parse remaining rounds from: {remaining}")
         return until_next
-
 
     # Async Properties
     @property
