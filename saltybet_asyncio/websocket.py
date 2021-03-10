@@ -162,7 +162,54 @@ class WebsocketClient(BasicClient):
         # Execute all async
         await asyncio.gather(*[f(game_mode) for f in trigger_funcs])
 
-    # Event Decorators
+    # Remove Triggers
+    def remove_all_triggers(self):
+        self._on_start_triggers = []
+        self._on_end_triggers = []
+        self._on_status_change_triggers = []
+        self._on_status_open_triggers = []
+        self._on_status_locked_triggers = []
+        self._on_status_complete_triggers = []
+        self._on_mode_change_triggers = []
+        self._on_mode_tournament_triggers = []
+        self._on_mode_exhibition_triggers = []
+        self._on_mode_matchmaking_triggers = []
+
+    def remove_trigger(self, trigger: str, func: Callable[..., Awaitable[None]]):
+        if trigger == "on_start" and func in self._on_start_triggers:
+            self._on_start_triggers.remove(func)
+        elif trigger == "on_end" and func in self._on_end_triggers:
+            self._on_end_triggers.remove(func)
+        elif trigger == "on_status_change" and func in self._on_status_change_triggers:
+            self._on_status_change_triggers.remove(func)
+        elif trigger == "on_status_open" and func in self._on_status_open_triggers:
+            self._on_status_open_triggers.remove(func)
+        elif trigger == "on_status_locked" and func in self._on_status_locked_triggers:
+            self._on_status_locked_triggers.remove(func)
+        elif (
+            trigger == "on_status_complete"
+            and func in self._on_status_complete_triggers
+        ):
+            self._on_status_complete_triggers.remove(func)
+        elif trigger == "on_mode_change" and func in self._on_mode_change_triggers:
+            self._on_mode_change_triggers.remove(func)
+        elif (
+            trigger == "on_mode_tournament"
+            and func in self._on_mode_tournament_triggers
+        ):
+            self._on_mode_tournament_triggers.remove(func)
+        elif (
+            trigger == "on_mode_exhibition"
+            and func in self._on_mode_exhibition_triggers
+        ):
+            self._on_mode_exhibition_triggers.remove(func)
+        elif (
+            trigger == "on_mode_matchmaking"
+            and func in self._on_mode_matchmaking_triggers
+        ):
+            self._on_mode_matchmaking_triggers.remove(func)
+
+    # Add Triggers / Event Decorators
     def on_start(
         self, func: Callable[[], Awaitable[None]]
     ) -> Callable[[], Awaitable[None]]:
