@@ -175,9 +175,15 @@ class BasicClient:
         game_mode: GameMode = GameMode.UNKNOWN
         if remaining.endswith("in the bracket!"):
             game_mode = GameMode.TOURNAMENT
+        elif remaining.startswith("FINAL ROUND!"):
+            game_mode = GameMode.TOURNAMENT
         elif remaining.endswith("exhibition matches left!"):
             game_mode = GameMode.EXHIBITION
+        elif remaining.startswith("Matchmaking mode will be activated after the next"):
+            game_mode = GameMode.EXHIBITION
         elif remaining.endswith("next tournament!"):
+            game_mode = GameMode.MATCHMAKING
+        elif remaining.startswith("Tournament mode will be activated after the next"):
             game_mode = GameMode.MATCHMAKING
         else:
             logger.warn(f"Unable to parse game mode from remaining: {remaining}")
@@ -185,6 +191,7 @@ class BasicClient:
 
     def _parse_remaining_rounds(self, remaining: str) -> Optional[int]:
         until_next: Optional[int] = None
+        # Lines with digits to parse
         for known_line in [
             "exhibition matches left!",
             "in the bracket!",
@@ -192,6 +199,14 @@ class BasicClient:
         ]:
             if remaining.endswith(known_line):
                 until_next = int(remaining.split(" ")[0])
+        # Lines that signal 1 match left
+        for known_line in [
+            "Tournament mode will be activated after the next",
+            "Matchmaking mode will be activated after the next",
+            "FINAL ROUND!",
+        ]:
+            if remaining.startswith(known_line):
+                until_next = 1
         if until_next is None:
             logger.warn(f"Unable to parse remaining rounds from: {remaining}")
         return until_next
