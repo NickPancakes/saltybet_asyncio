@@ -71,15 +71,14 @@ class WebsocketClient(BasicClient):
         self.running = True
 
         # Listen for Events
+        logger.info("Connecting to saltybet websocket...")
+        await self.sio.connect("https://www.saltybet.com:2096")
+        logger.info("Connected, waiting for messages.")
         while True:
             try:
-                await self.sio.connect("https://www.saltybet.com:2096")
                 await self.sio.wait()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logger.info(f"Encountered error: {e}\nAttempting to restart.")
-
         await self.shutdown()
 
     async def shutdown(self):

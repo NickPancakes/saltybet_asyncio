@@ -134,6 +134,8 @@ class BasicClient:
         async with self.session.get(
             "https://www.saltybet.com/ajax_get_stats.php"
         ) as resp:
+            if not await resp.text():
+                return None
             jresp = await resp.json(content_type="text/html")
         return jresp
 
