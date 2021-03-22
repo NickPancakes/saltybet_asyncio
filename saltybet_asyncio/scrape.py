@@ -59,8 +59,9 @@ class ScraperClient(BasicClient):
             else:
                 yield max_wait
 
-    # HTTP GET Request with limit message check. Only used for scraping and illuminati-required stats.
     async def _get_html(self, url: str, max_retries: int = 10) -> Optional[bytes]:
+        """HTTP GET Request with limit message check.
+        Only used for scraping and illuminati-required stats."""
         out = None
         normal_wait_gen = self._wait_generator(factor=7.0, max_wait=90.0)
         limit_wait_gen = self._wait_generator(factor=90.0, max_wait=300.0)
@@ -92,8 +93,9 @@ class ScraperClient(BasicClient):
                         in content.text(deep=False)
                     ):
                         wait_after_limit = next(limit_wait_gen)
+                        logger.info(f"Maximum requests hit on attempt {i}.")
                         logger.info(
-                            f"Maximum requests hit on attempt {i}. Waiting {wait_after_limit} seconds before retrying..."
+                            f"Waiting {wait_after_limit} seconds before retrying..."
                         )
                         await asyncio.sleep(wait_after_limit)
                         continue
@@ -122,7 +124,8 @@ class ScraperClient(BasicClient):
             return None
 
         top_result_node = HTMLParser(html).css_first(
-            ".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > td:nth-child(1) > a:nth-child(1)"
+            ".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > "
+            + "td:nth-child(1) > a:nth-child(1)"
         )
         if top_result_node is None:
             logger.error("Failed to get Tournament ID")
@@ -145,7 +148,8 @@ class ScraperClient(BasicClient):
 
         tree = HTMLParser(html)
         top_row = tree.css_first(
-            ".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > td:nth-child(1) > a:nth-child(1)"
+            ".leaderboard > tbody:nth-child(2) > tr:nth-child(1) > "
+            + "td:nth-child(1) > a:nth-child(1)"
         )
         if top_row is None:
             logger.error("Failed to get Match ID")
@@ -379,7 +383,8 @@ class ScraperClient(BasicClient):
             return None
 
         html = await self._get_html(
-            f"https://www.saltybet.com/compendium?tier={tier.value}&character={fighter_id}"
+            f"https://www.saltybet.com/compendium?tier={tier.value}"
+            + f"&character={fighter_id}"
         )
         if html is None:
             logger.error("Failed to scrape Fighter")
@@ -392,12 +397,14 @@ class ScraperClient(BasicClient):
             "tier": tier,
             "life": int(
                 tree.css_first(
-                    "table.detailedstats > tbody:nth-child(2) > tr:nth-child(2) > td:nth-child(1)"
+                    "table.detailedstats > tbody:nth-child(2) > "
+                    + "tr:nth-child(2) > td:nth-child(1)"
                 ).text()
             ),
             "meter": int(
                 tree.css_first(
-                    "table.detailedstats > tbody:nth-child(2) > tr:nth-child(2) > td:nth-child(2)"
+                    "table.detailedstats > tbody:nth-child(2) > "
+                    + "tr:nth-child(2) > td:nth-child(2)"
                 ).text()
             ),
             "sprite": f"https://www.saltybet.com/images/charanim/{fighter_id}.gif",

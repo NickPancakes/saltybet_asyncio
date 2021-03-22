@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class BasicClient:
-    """Handles Saltybet Session Management and Basic Actions"""
+    """Handles Saltybet Session Management and Basic Actions."""
 
     def __init__(self):
         # Initialized
@@ -75,6 +75,7 @@ class BasicClient:
                 return False
             html = await resp.read()
             tree = HTMLParser(html)
+
             # Check for lgoged in
             for node in tree.css(".nav-text > a:nth-child(1) > span:nth-child(1)"):
                 if "Sign in" in node.text():

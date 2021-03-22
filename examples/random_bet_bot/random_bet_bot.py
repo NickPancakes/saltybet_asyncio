@@ -8,7 +8,8 @@ from pprint import pformat
 from random import choice, randint
 
 import aiorun
-from saltybet_asyncio import SideColor, Match, SaltybetClient, MatchStatus
+
+from saltybet_asyncio import Match, MatchStatus, SaltybetClient, SideColor
 
 
 # Event Subscriptions
@@ -20,7 +21,9 @@ async def login_on_start():
         logger.info("No credentails provided, no betting will take place.")
 
 
-async def print_fighters(match: Match,):
+async def print_fighters(
+    match: Match,
+):
     global bet_amount
     global bet_side
     logger.info(
@@ -51,20 +54,23 @@ async def print_fighters(match: Match,):
 
 async def print_ratio(match: Match):
     logger.info(
-        f"Bets Locked: {match['red_team_name']:>16} - ${match['red_bets']:<16n} vs {match['blue_team_name']:>16} - ${match['blue_bets']:<16n}"
+        f"Bets Locked: {match['red_team_name']:>16} - ${match['red_bets']:<16n} "
+        + f"vs {match['blue_team_name']:>16} - ${match['blue_bets']:<16n}"
     )
     if match["red_bets"] > match["blue_bets"]:
         bet_favor = match["red_bets"] / match["blue_bets"]
         logger.info(
-            f"Bets favor {match['red_team_name']} {bet_favor:.2f}:1 over {match['blue_team_name']}"
+            f"Bets favor {match['red_team_name']} {bet_favor:.2f}:1 "
+            + f"over {match['blue_team_name']}"
         )
     elif match["blue_bets"] > match["red_bets"]:
         bet_favor = match["blue_bets"] / match["red_bets"]
         logger.info(
-            f"Bets favor {match['blue_team_name']} {bet_favor:.2f}:1 over {match['red_team_name']}"
+            f"Bets favor {match['blue_team_name']} {bet_favor:.2f}:1 "
+            + f"over {match['red_team_name']}"
         )
     else:
-        logger.info(f"Bets are 1:1!")
+        logger.info("Bets are 1:1!")
     logger.info(f"Bettors:\n{pformat(await client.get_bettors())}")
 
 
@@ -100,7 +106,8 @@ if __name__ == "__main__":
 
     # Argparse
     parser = ArgumentParser(
-        description="saltybet_asyncio Demo. Will place random bets on a random side every match."
+        description="saltybet_asyncio Demo. "
+        + "Will place random bets on a random side every match."
     )
     parser.add_argument("--email", type=str, help="Saltybet.com Email address")
     parser.add_argument("--password", type=str, help="Saltybet.com Password")

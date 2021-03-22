@@ -1,5 +1,5 @@
 # saltybet_asyncio
-An asyncio-based libary for interacting with Saltybet. 
+An asyncio-based libary for interacting with Saltybet.
 
 See `examples/random_bet_bot.py` for example usage.
 

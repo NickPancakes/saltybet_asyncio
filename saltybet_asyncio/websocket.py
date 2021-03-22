@@ -8,11 +8,7 @@ from typing import List
 from socketio import AsyncClient
 
 from .base import BasicClient
-from .types import (
-    GameMode,
-    MatchStatus,
-    Match,
-)
+from .types import GameMode, Match, MatchStatus
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +116,8 @@ class WebsocketClient(BasicClient):
         match_status: MatchStatus = match["status"]
         if match_status != self._last_match_status:
             logger.debug(
-                f"Match status changed from {self._last_match_status} to {match_status.name}"
+                f"Match status changed from {self._last_match_status}"
+                + " to {match_status.name}"
             )
             self._last_match_status = match_status
             await self._trigger_status_change(match)
@@ -128,7 +125,8 @@ class WebsocketClient(BasicClient):
         game_mode: GameMode = match["mode"]
         if game_mode != self._last_game_mode:
             logger.debug(
-                f"Game mode changed from {self._last_game_mode.name} to {game_mode.name}"
+                f"Game mode changed from {self._last_game_mode.name} "
+                + f"to {game_mode.name}"
             )
             self._last_game_mode = game_mode
             await self._trigger_mode_change(game_mode)

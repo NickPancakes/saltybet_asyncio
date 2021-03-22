@@ -102,4 +102,3 @@ class Bettor(TypedDict, total=False):
 class Bettors(TypedDict, total=False):
     match: Match
     bettors: List[Bettor]
-

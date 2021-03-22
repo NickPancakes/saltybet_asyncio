@@ -2,9 +2,8 @@
 
 import logging
 
-from .websocket import WebsocketClient
 from .scrape import ScraperClient
-
+from .websocket import WebsocketClient
 
 logger = logging.getLogger(__name__)
 
