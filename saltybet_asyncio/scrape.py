@@ -361,7 +361,7 @@ class ScraperClient(BasicClient):
         for row in rows:
             fighter_id = row.css_first("a:nth-child(1)").attrs["href"].split("=")[-1]
             fighters.append(
-                {"name": row.text(), "fighter_id": fighter_id, "tier": tier,}
+                {"name": row.text(), "fighter_id": fighter_id, "tier": tier}
             )
         return fighters
 

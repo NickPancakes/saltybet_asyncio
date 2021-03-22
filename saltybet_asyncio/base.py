@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
+import asyncio
 import logging
 from decimal import Decimal
-from typing import Optional, Tuple
+from typing import Optional
 
 import pendulum
 from aiohttp import ClientSession, TCPConnector
@@ -317,6 +318,42 @@ class BasicClient:
             else:
                 logger.debug("Bet placed successfully")
 
+    async def _parse_bettor_items(self, k: str, v: dict) -> Optional[Bettor]:
+        if k in [
+            "p1name",
+            "p2name",
+            "p1total",
+            "p2total",
+            "status",
+            "alert",
+            "x",
+            "remaining",
+        ]:
+            return None
+        elif "n" not in v or "b" not in v:
+            return None
+        bettor: Bettor = {
+            "bettor_id": int(k),
+            "username": v["n"],
+            "balance": int(v["b"]),
+        }
+        if "p" in v:
+            bettor["bet_side"] = SideColor(int(v["p"]))
+        if "w" in v:
+            bettor["wager"] = int(v["w"])
+        if "r" in v:
+            if len(v["r"]) > 3:
+                bettor["avatar"] = f"https://www.gravatar.com/avatar/{v['r']}"
+            else:
+                bettor[
+                    "avatar"
+                ] = f"https://www.saltybet.com/images/ranksmall/rank{v['r']}.png"
+        if "g" in v:
+            bettor["illuminati"] = v["g"] == "1"
+        if "c" in v and v["c"] != "0" and "," in v["c"]:
+            bettor["color_r"], bettor["color_g"], bettor["color_b"] = v["c"].split(",")
+        return bettor
+
     async def get_bettors(self) -> Optional[Bettors]:
         """Fetches data from zdata.json"""
         jresp = await self._get_raw_zdata_json()
@@ -337,43 +374,12 @@ class BasicClient:
         bettors["match"]["blue_team_name"] = jresp["p2name"]
         bettors["match"]["red_bets"] = int(jresp["p1total"].replace(",", ""))
         bettors["match"]["blue_bets"] = int(jresp["p2total"].replace(",", ""))
-        for k, v in jresp.items():
-            if k in [
-                "p1name",
-                "p2name",
-                "p1total",
-                "p2total",
-                "status",
-                "alert",
-                "x",
-                "remaining",
-            ]:
-                continue
-            elif "n" not in v or "b" not in v:
-                continue
-            bettor: Bettor = {
-                "bettor_id": int(k),
-                "username": v["n"],
-                "balance": int(v["b"]),
-            }
-            if "p" in v:
-                bettor["bet_side"] = SideColor(int(v["p"]))
-            if "w" in v:
-                bettor["wager"] = int(v["w"])
-            if "r" in v:
-                if len(v["r"]) > 3:
-                    bettor["avatar"] = f"https://www.gravatar.com/avatar/{v['r']}"
-                else:
-                    bettor[
-                        "avatar"
-                    ] = f"https://www.saltybet.com/images/ranksmall/rank{v['r']}.png"
-            if "g" in v:
-                bettor["illuminati"] = v["g"] == "1"
-            if "c" in v and v["c"] != "0" and "," in v["c"]:
-                bettor["color_r"], bettor["color_g"], bettor["color_b"] = v["c"].split(
-                    ","
-                )
-            bettors["bettors"].append(bettor)
+        parsed_bettors = await asyncio.gather(
+            *[self._parse_bettor_items(k, v) for k, v in jresp.items()]
+        )
+        bettors["bettors"].extend(
+            [bettor for bettor in parsed_bettors if bettor is not None]
+        )
         return bettors
 
     async def get_match_stats(self) -> Optional[Match]:

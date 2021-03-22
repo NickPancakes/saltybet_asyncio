@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylama:ignore=W0611
 
 __version__ = "0.1.0"
 
@@ -19,4 +20,3 @@ from .types import (
     Bettor as Bettor,
     Bettors as Bettors,
 )
-
